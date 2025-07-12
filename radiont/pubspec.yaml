@@ -1,0 +1,49 @@
+name: radiont
+description: A modern, abstract radio application.
+publish_to: 'none' 
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Állapotkezeléshez (nagyon fontos!)
+  provider: ^6.1.1
+
+  # Dátum és idő formázásához
+  intl: ^0.18.1
+
+  # Áttetsző, "üveg" effektekhez
+  glass_kit: ^3.0.0
+
+  shared_preferences: ^2.2.2
+  glassmorphism: ^3.0.0
+  google_fonts: ^6.2.1
+  simple_animations: ^5.1.0
+  wakelock_plus: ^1.3.2
+  http: ^1.4.0
+  just_audio: ^0.10.4
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Itt adjuk hozzá az eszközöket (képek, betűtípusok)
+  assets:
+    - assets/images/
+    - assets/fonts/
+
+  # Itt definiáljuk a betűtípust
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron-Regular.ttf
+        - asset: assets/fonts/Orbitron-Bold.ttf
+          weight: 700
