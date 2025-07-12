@@ -14,6 +14,7 @@ import 'package:simple_animations/simple_animations.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'api_service.dart';
 
@@ -63,7 +64,13 @@ class ThemeProvider extends ChangeNotifier {
   Future<void> setThemeColor(Color color) async { _selectedColor = color; await prefs.setInt('themeColor', color.value); notifyListeners(); }
   Future<void> setAlwaysOn(bool value) async { _isAlwaysOn = value; WakelockPlus.toggle(enable: _isAlwaysOn); await prefs.setBool('isAlwaysOn', value); notifyListeners(); }
   Future<void> setFullScreen(bool value) async { _isFullScreen = value; _applyFullScreen(); await prefs.setBool('isFullScreen', value); notifyListeners(); }
-  Future<void> setBackgroundPlayback(bool value) async { _backgroundPlayback = value; await prefs.setBool('backgroundPlayback', value); notifyListeners(); }
+  
+  Future<void> setBackgroundPlayback(bool value) async {
+    _backgroundPlayback = value;
+    await prefs.setBool('backgroundPlayback', value);
+    notifyListeners();
+  }
+
   Future<void> setPlayButtonBlack(bool value) async { _playButtonBlack = value; await prefs.setBool('playButtonBlack', value); notifyListeners(); }
   
   ThemeData getDarkTheme() => _createThemeData(Brightness.dark);
@@ -174,18 +181,36 @@ class RadioProvider extends ChangeNotifier {
     _swipeOnlyFavorites = prefs.getBool('swipeOnlyFavorites') ?? false;
   }
 
+  // MÓDOSÍTOTT RÉSZ: A metódus mostantól biztonságosan kezeli az indexet.
   Future<void> toggleFavorite(String stationId) async {
     final station = _stations.firstWhere((s) => s.id == stationId, orElse: () => currentStation);
     if(station.id.isEmpty) return;
+
     station.isFavorite = !station.isFavorite;
     final favoriteIds = _stations.where((s) => s.isFavorite).map((s) => s.id).toList();
     await prefs.setStringList('favoriteStations', favoriteIds);
+
+    // Ha "csak kedvencek" módban vagyunk, a lista mérete megváltozhatott.
+    // Biztosítjuk, hogy az index érvényes maradjon, MIELŐTT a UI frissül.
+    if (_swipeOnlyFavorites) {
+      // Az indexet a lista új, érvényes tartományába "szorítjuk".
+      // Ha egy elemet törlünk, és az index túlmutat a listán, az utolsó érvényes indexre áll.
+      // Ha a lista kiürül, az index 0 lesz.
+      _currentIndex = _currentIndex.clamp(0, max(0, activeStations.length - 1));
+    }
+
     HapticFeedback.mediumImpact();
-    notifyListeners();
+    notifyListeners(); // Most már biztonságos.
   }
 
   Future<void> setStationByIndex(int index) async {
     if (activeStations.isEmpty) return;
+
+    // Biztonsági ellenőrzés, hogy a PageView által adott index érvényes-e
+    if (index < 0 || index >= activeStations.length) {
+      index = 0;
+    }
+
     _currentIndex = index;
     final stationToPlay = activeStations[index];
     
@@ -200,16 +225,35 @@ class RadioProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // MÓDOSÍTOTT RÉSZ: Robusztusabbá tettük, hogy minden helyzetet kezeljen.
   Future<void> setSwipeOnlyFavorites(bool value) async {
-    final oldStation = currentStation;
+    final String oldStationId = activeStations.isNotEmpty ? currentStation.id : '';
+
     _swipeOnlyFavorites = value;
-    int newIndex = activeStations.indexWhere((s) => s.id == oldStation.id);
-    _currentIndex = (newIndex == -1) ? 0 : newIndex;
-    if (pageController.hasClients) {
-      pageController.jumpToPage(_currentIndex);
-    }
     await prefs.setBool('swipeOnlyFavorites', value);
+
+    int newIndex = activeStations.indexWhere((s) => s.id == oldStationId);
+    
+    // Ha a régi állomás nem található az új listában (pl. nem volt kedvenc),
+    // vagy ha a lista üres, az index 0 lesz.
+    if (newIndex == -1) {
+      _currentIndex = 0;
+    } else {
+      _currentIndex = newIndex;
+    }
+    
+    // Extra biztonsági ellenőrzés, ami a kiürülő lista esetét is kezeli.
+    _currentIndex = _currentIndex.clamp(0, max(0, activeStations.length - 1));
+
     notifyListeners();
+
+    if (pageController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (pageController.hasClients) {
+          pageController.jumpToPage(_currentIndex);
+        }
+      });
+    }
   }
 
   void nextStation() {
@@ -988,6 +1032,78 @@ class SettingsSheet extends StatelessWidget {
                 activeColor: theme.primaryColor, 
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10)
               ),
+              if (!themeProvider.backgroundPlayback)
+                SwitchListTile(
+                  title: Text("Lejátszás a háttérben", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
+                  subtitle: Text("Engedélyezi a folyamatos lejátszást", style: theme.textTheme.bodyMedium),
+                  value: themeProvider.backgroundPlayback,
+                  onChanged: (bool value) async {
+                    if (value) {
+                      await showDialog(
+                        context: context,
+                        barrierColor: Colors.black.withOpacity(0.4),
+                        builder: (BuildContext dialogContext) {
+                          return BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                            child: Dialog(
+                              backgroundColor: Colors.transparent,
+                              elevation: 0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(30),
+                                  gradient: BottomSheetStyles.glassBorderGradient(dialogContext),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(1.5),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(28.5),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        gradient: BottomSheetStyles.glassGradient(dialogContext),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(25, 25, 25, 20),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text("Háttérben történő lejátszás", style: theme.textTheme.titleLarge),
+                                            const SizedBox(height: 15),
+                                            Text(
+                                              "A folyamatos lejátszás biztosításához az alkalmazás akkumulátorhasználati beállítását 'Nincs korlátozva' opcióra kell állítani.\n\nAz 'OK' gombra kattintva átirányítjuk az alkalmazás beállításaihoz, ahol ezt manuálisan megteheti.",
+                                              style: theme.textTheme.bodyMedium
+                                            ),
+                                            const SizedBox(height: 20),
+                                            Align(
+                                              alignment: Alignment.centerRight,
+                                              child: TextButton(
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor: theme.primaryColor,
+                                                ),
+                                                child: Text("OK", style: theme.textTheme.labelLarge?.copyWith(color: theme.primaryColor, fontSize: 16)),
+                                                onPressed: () {
+                                                  Navigator.of(dialogContext).pop();
+                                                  openAppSettings();
+                                                  themeProvider.setBackgroundPlayback(true);
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }
+                  },
+                  activeColor: theme.primaryColor,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
               const Divider(height: 25, thickness: 0.5),
               Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Neonszín", style: theme.textTheme.titleMedium)),
               const SizedBox(height: 20),
