@@ -1,7 +1,9 @@
+# pubspec.yaml
+
 name: radiont
 description: A modern, abstract radio application.
 publish_to: 'none' 
-version: 1.0.0+1
+version: 1.1.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,16 +11,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
-  # Állapotkezeléshez (nagyon fontos!)
   provider: ^6.1.1
-
-  # Dátum és idő formázásához
   intl: ^0.18.1
-
-  # Áttetsző, "üveg" effektekhez
   glass_kit: ^3.0.0
-
   shared_preferences: ^2.2.2
   glassmorphism: ^3.0.0
   google_fonts: ^6.2.1
@@ -26,7 +21,14 @@ dependencies:
   wakelock_plus: ^1.3.2
   http: ^1.4.0
   just_audio: ^0.10.4
-  
+  volume_controller: ^2.0.0
+  #just_audio_background: ^0.9.6  # Frissített verzió
+
+just_audio_background: 
+  git:
+    url: https://github.com/ryanheise/just_audio_background.git
+    ref: main
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -34,13 +36,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-  # Itt adjuk hozzá az eszközöket (képek, betűtípusok)
   assets:
     - assets/images/
     - assets/fonts/
-
-  # Itt definiáljuk a betűtípust
   fonts:
     - family: Orbitron
       fonts:

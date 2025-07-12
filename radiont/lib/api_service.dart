@@ -3,7 +3,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-// A RadioStation modell, ami az API adatait reprezentálja.
 class RadioStation {
   final String id;
   final String name;
@@ -34,11 +33,6 @@ class RadioStation {
 }
 
 class RadioBrowserApi {
-  // =========================================================================
-  // MÓDOSÍTÁS ITT:
-  // A korábbi 'synthwave' címke helyett most országkód alapján kérjük le a 
-  // 150 legnépszerűbb, működő magyar rádióállomást.
-  // =========================================================================
   static const String _baseUrl = 
       "https://de1.api.radio-browser.info/json/stations/bycountrycodeexact/HU?limit=150&order=clickcount&reverse=true&hidebroken=true";
 
@@ -48,11 +42,14 @@ class RadioBrowserApi {
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonData = json.decode(response.body);
-        // Kiszűrjük azokat az állomásokat, amelyeknek nincs érvényes stream URL-je.
-        return jsonData
-            .map((item) => RadioStation.fromJson(item))
-            .where((station) => station.streamUrl.startsWith('http'))
-            .toList();
+        final uniqueStations = <String, RadioStation>{};
+        for (var item in jsonData) {
+          final station = RadioStation.fromJson(item);
+          if (station.streamUrl.startsWith('http') && !uniqueStations.containsKey(station.id)) {
+            uniqueStations[station.id] = station;
+          }
+        }
+        return uniqueStations.values.toList();
       } else {
         print('API hiba: ${response.statusCode}');
         return [];
