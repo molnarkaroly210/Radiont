@@ -109,11 +109,9 @@ class ThemeProvider extends ChangeNotifier {
         onSecondary: isDark ? Colors.black : Colors.white,
         error: Colors.redAccent.shade100,
         onError: Colors.black,
-        background: scaffoldBg,
-        onBackground: onBgColor,
         surface: surfaceColor,
         onSurface: onBgColor,
-        surfaceVariant: isDark ? const Color(0xFF333850) : const Color(0xFFE8EAF0)
+        surfaceContainerHighest: isDark ? const Color(0xFF333850) : const Color(0xFFE8EAF0)
       ),
       iconTheme: IconThemeData(color: primary, size: 26),
       sliderTheme: const SliderThemeData(trackHeight: 4, thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7), overlayShape: RoundSliderOverlayShape(overlayRadius: 18))
@@ -666,7 +664,7 @@ class PlayerControls extends StatelessWidget {
                         value: radioProvider.systemVolume,
                         onChanged: radioProvider.setSystemVolume,
                         activeColor: theme.primaryColor,
-                        inactiveColor: theme.colorScheme.surfaceVariant
+                        inactiveColor: theme.colorScheme.surfaceContainerHighest
                       )
                     ),
                     Icon(
@@ -1140,7 +1138,7 @@ class SettingsSheet extends StatelessWidget {
                       themeProvider.setThemeColor(color);
                     },
                     activeColor: themeProvider.selectedColor,
-                    inactiveColor: theme.colorScheme.surfaceVariant,
+                    inactiveColor: theme.colorScheme.surfaceContainerHighest,
                   ),
                   const SizedBox(height: 20),
                   Container(
@@ -1179,16 +1177,16 @@ class SettingsSheet extends StatelessWidget {
   ButtonStyle _segmentedButtonStyle(BuildContext context) { 
     final theme = Theme.of(context); 
     return ButtonStyle(
-      backgroundColor: MaterialStateProperty.resolveWith<Color?>((states) { 
-        if (states.contains(MaterialState.selected)) return theme.primaryColor; 
-        return theme.colorScheme.surfaceVariant.withOpacity(0.5); 
+      backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) { 
+        if (states.contains(WidgetState.selected)) return theme.primaryColor; 
+        return theme.colorScheme.surfaceContainerHighest.withOpacity(0.5); 
       }), 
-      foregroundColor: MaterialStateProperty.resolveWith<Color?>((states) { 
-        if (states.contains(MaterialState.selected)) return theme.colorScheme.onPrimary; 
+      foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) { 
+        if (states.contains(WidgetState.selected)) return theme.colorScheme.onPrimary; 
         return theme.colorScheme.onSurface; 
       }), 
-      shape: MaterialStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
-      padding: MaterialStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
+      shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), 
+      padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
     ); 
   }
 }
