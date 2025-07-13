@@ -1,9 +1,9 @@
 # pubspec.yaml
 
 name: radiont
-description: A modern, abstract radio application.
+description: A modern, radio application.
 publish_to: 'none' 
-version: 1.1.4+1
+version: 1.1.5+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -26,6 +26,7 @@ dependencies:
   permission_handler: ^11.3.1
   just_audio_background: ^0.0.1-beta.11
   flutter_launcher_icons: "^0.13.1" # Add this line
+  loading_animation_widget: ^1.2.1
 
 just_audio_background: 
   git:
