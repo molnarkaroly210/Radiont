@@ -2,7 +2,6 @@
 
     <!-- Engedélyek -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <!-- Internet hozzáférés, ha még nem volt benne -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,7 +9,11 @@
     <application
         android:label="Radiont"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:foregroundServiceType="mediaPlayback"
+        >
         <activity
             android:name=".MainActivity"
             android:exported="true"
