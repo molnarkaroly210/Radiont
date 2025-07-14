@@ -1,2 +1,5 @@
 -keep class com.your.package.** { *; }
 -keep class com.google.android.exoplayer2.** { *; }
+-keep class com.ryanheise.just_audio.** { *; }
+-keep class com.ryanheise.just_audio_background.** { *; }
+-keep class com.ryanheise.audio_service.** { *; }
