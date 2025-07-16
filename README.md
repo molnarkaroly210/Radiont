@@ -58,7 +58,7 @@ Architekturálisan az alkalmazás a **Provider** state management megoldásra é
 
 ---
 
-## 🚀 Legutóbbi Kiadás (v1.2.1)
+## 🚀 Legutóbbi Kiadás (v1.2.5)
 
 A legfrissebb stabil kiadás már elérhető! Ez a verzió tartalmazza az összes fent említett funkciót, stabilitási javításokat és egy teljesen megújult felhasználói élményt.
 
