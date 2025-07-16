@@ -6,7 +6,7 @@
 
 [![Flutter Version](https://img.shields.io/badge/Flutter-3.x-blue.svg?style=for-the-badge&logo=flutter)](https://flutter.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![GitHub Releases](https://img.shields.io/github/v/release/FELHASZNALONEVED/REPOZITORIUMOD?style=for-the-badge)](https://github.com/FELHASZNALONEVED/REPOZITORIUMOD/releases)
+[![GitHub Releases](https://img.shields.io/github/v/release/molnarkaroly210/radiont?style=for-the-badge)](https://github.com/molnarkaroly210/Radiont/releases/tag/v1.2.1)
 
 
 **Egy modern, letisztult és testreszabható internetes rádiólejátszó alkalmazás, amely a zenehallgatás élményét helyezi a középpontba.**
@@ -61,6 +61,6 @@ A teljes kiadási jegyzékért és a telepítőfájlok letöltéséért kattints
 
 <div align="center">
 
-[![Legfrissebb kiadás letöltése](https://img.shields.io/badge/Letöltés-v1.2.1-blue.svg?style=for-the-badge&logo=github)](https://github.com/FELHASZNALONEVED/REPOZITORIUMOD/releases/latest)
+[![Legfrissebb kiadás letöltése](https://img.shields.io/badge/Letöltés-v1.2.1-blue.svg?style=for-the-badge&logo=github)](https://github.com/molnarkaroly210/radiont/releases/latest)
 
 </div>
