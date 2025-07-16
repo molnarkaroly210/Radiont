@@ -1,5 +1,3 @@
-// lib/main.dart
-
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
@@ -13,10 +11,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:simple_animations/simple_animations.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 
+// Győződj meg róla, hogy ez a fájl létezik és tartalmazza az API logikát.
 import 'api_service.dart';
 
 const Duration kAppAnimationDuration = Duration(milliseconds: 500);
@@ -132,6 +132,7 @@ class RadioProvider extends ChangeNotifier {
   bool _swipeOnlyFavorites = false;
   bool _isLoading = true;
   double _systemVolume = 0.5;
+  int? _lastProcessedIndex;
 
   bool get isLoading => _isLoading;
   List<RadioStation> get stations => _stations;
@@ -153,6 +154,22 @@ class RadioProvider extends ChangeNotifier {
       _systemVolume = volume;
       notifyListeners();
     });
+
+    // Figyeli a lejátszási lista indexének változását (pl. értesítési sáv gombnyomásra)
+    _audioPlayer.currentIndexStream.listen((index) {
+        if (index != null && index != _lastProcessedIndex) {
+            _lastProcessedIndex = index; // Megakadályozza a többszöri feldolgozást
+            // A pageController-t a lejátszási lista aktuális indexéhez igazítjuk.
+            // A setStationByIndex-t a pageController onPageChanged eseménye fogja meghívni.
+            if (pageController.hasClients) {
+              pageController.animateToPage(
+                  index,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut,
+              );
+            }
+        }
+    });
   }
 
   @override
@@ -171,6 +188,10 @@ class RadioProvider extends ChangeNotifier {
     _loadSettings();
     _isLoading = false;
     notifyListeners();
+    // Lejátszási lista beállítása az indításkor
+    if (activeStations.isNotEmpty) {
+      _updateAudioSource(play: false);
+    }
   }
 
   void _loadSettings() {
@@ -192,32 +213,70 @@ class RadioProvider extends ChangeNotifier {
     await prefs.setStringList('favoriteStations', favoriteIds);
 
     if (_swipeOnlyFavorites) {
-      _currentIndex = _currentIndex.clamp(0, max(0, activeStations.length - 1));
+      // Újraszámoljuk az indexet és frissítjük a lejátszási listát
+      final oldStationId = currentStation.id;
+      final newIndex = activeStations.indexWhere((s) => s.id == oldStationId);
+      _currentIndex = (newIndex != -1) ? newIndex : 0;
+      await _updateAudioSource(play: _audioPlayer.playing);
+      pageController.jumpToPage(_currentIndex);
     }
 
     HapticFeedback.mediumImpact();
     notifyListeners();
   }
 
-  Future<void> setStationByIndex(int index) async {
-    if (activeStations.isEmpty) return;
-
-    if (index < 0 || index >= activeStations.length) {
-      index = 0;
-    }
+  Future<void> setStationByIndex(int index, {bool play = true}) async {
+    if (activeStations.isEmpty || index >= activeStations.length) return;
 
     _currentIndex = index;
-    final stationToPlay = activeStations[index];
+    final stationToPlay = activeStations[_currentIndex];
 
     try {
-      if (stationToPlay.streamUrl.isNotEmpty) {
-        await _audioPlayer.setUrl(stationToPlay.streamUrl);
-        _audioPlayer.play();
+      if (stationToPlay.streamUrl.isNotEmpty && _audioPlayer.currentIndex != index) {
+          // A háttérlejátszó a teljes lejátszási lista indexét használja
+          await _audioPlayer.seek(Duration.zero, index: index);
+      }
+      if (play && !_audioPlayer.playing) {
+          _audioPlayer.play();
       }
     } catch (e) {
-      print("Lejátszási hiba: $e");
+      print("Állomás beállítási hiba: $e");
     }
     notifyListeners();
+  }
+
+  // Metódus a lejátszási lista (AudioSource) frissítésére
+  Future<void> _updateAudioSource({bool play = true}) async {
+      if (activeStations.isEmpty) {
+          await _audioPlayer.stop();
+          return;
+      }
+
+      final audioSources = activeStations.map((station) {
+          return AudioSource.uri(
+              Uri.parse(station.streamUrl),
+              tag: MediaItem(
+                  id: station.id,
+                  album: "Radiont",
+                  title: station.name,
+                  artist: station.nowPlaying,
+                  artUri: Uri.parse(station.imageUrl),
+              ),
+          );
+      }).toList();
+
+      try {
+          await _audioPlayer.setAudioSource(
+              ConcatenatingAudioSource(children: audioSources),
+              initialIndex: _currentIndex,
+              initialPosition: Duration.zero,
+          );
+          if (play) {
+              _audioPlayer.play();
+          }
+      } catch (e) {
+          print("Hiba az audio forrás beállításakor: $e");
+      }
   }
 
   Future<void> setSwipeOnlyFavorites(bool value) async {
@@ -226,6 +285,7 @@ class RadioProvider extends ChangeNotifier {
     _swipeOnlyFavorites = value;
     await prefs.setBool('swipeOnlyFavorites', value);
 
+    // Az új 'activeStations' lista alapján megkeressük az előzőleg hallgatott állomás új indexét
     int newIndex = activeStations.indexWhere((s) => s.id == oldStationId);
 
     if (newIndex == -1) {
@@ -234,10 +294,12 @@ class RadioProvider extends ChangeNotifier {
       _currentIndex = newIndex;
     }
 
-    _currentIndex = _currentIndex.clamp(0, max(0, activeStations.length - 1));
+    // Frissítjük a teljes lejátszási listát a háttérlejátszóban
+    await _updateAudioSource(play: _audioPlayer.playing);
 
     notifyListeners();
 
+    // A PageView-t az új indexre ugratjuk
     if (pageController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (pageController.hasClients) {
@@ -266,6 +328,7 @@ class RadioProvider extends ChangeNotifier {
       if (_audioPlayer.processingState == ProcessingState.ready) {
         _audioPlayer.play();
       } else if(_audioPlayer.processingState == ProcessingState.idle || _audioPlayer.processingState == ProcessingState.completed){
+        // Ha a lejátszó leállt, újra beállítjuk az aktuális állomást a lejátszási listában
         setStationByIndex(_currentIndex);
       }
     }
@@ -278,12 +341,25 @@ class RadioProvider extends ChangeNotifier {
   }
 }
 
+
 // =================================================================
 // ALKALMAZÁS BELÉPÉSI PONTJA
 // =================================================================
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // === MÓDOSÍTÁS KEZDETE (HIBÁK JAVÍTÁSA) ===
+  // A just_audio_background szolgáltatás inicializálása a legújabb API szerint.
+  // A vezérlőgombokat már nem kell manuálisan megadni, a csomag automatikusan kezeli őket.
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.radiont.app.channel.audio',
+    androidNotificationChannelName: 'Radiont Lejátszás',
+    androidNotificationOngoing: true,
+    androidNotificationIcon: 'mipmap/ic_launcher',
+  );
+  // === MÓDOSÍTÁS VÉGE ===
+
   final prefs = await SharedPreferences.getInstance();
   runApp(
     MultiProvider(
@@ -295,6 +371,7 @@ Future<void> main() async {
     ),
   );
 }
+
 
 class RadiontApp extends StatelessWidget {
   const RadiontApp({super.key});
@@ -360,7 +437,7 @@ class _MainScreenState extends State<MainScreen> {
       body: Stack(
         children: [
           const AnimatedBackground(),
-          if (!radioProvider.isLoading && radioProvider.stations.isNotEmpty)
+          if (!radioProvider.isLoading && radioProvider.stations.isNotEmpty && radioProvider.currentStation.imageUrl.isNotEmpty)
             AnimatedSwitcher(
                 duration: const Duration(milliseconds: 800),
                 transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
@@ -416,7 +493,9 @@ class _MainScreenState extends State<MainScreen> {
                       controller: radioProvider.pageController,
                       itemCount: stationsToDisplay.length,
                       onPageChanged: (index) {
-                        radioProvider.setStationByIndex(index);
+                        // Itt már nem kell lejátszást indítani, csak az állapotot frissíteni.
+                        // A setStationByIndex kezeli a lejátszó belső állapotának (seek) frissítését.
+                        radioProvider.setStationByIndex(index, play: radioProvider.audioPlayer.playing);
                       },
                       itemBuilder: (context, index) {
                         final station = stationsToDisplay[index];
@@ -475,7 +554,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // =================================================================
-// EGYÉB WIDGETEK
+// EGYÉB WIDGETEK (Változatlan)
 // =================================================================
 
 class PressableScaleWidget extends StatefulWidget {
@@ -653,10 +732,6 @@ class PlayerControls extends StatelessWidget {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // =============================================================
-                                  // MÓDOSÍTÁS ITT: Kivettük a szövegek animációját (AnimatedSwitcher).
-                                  // Helyette a sima Text widgeteket használjuk, hogy a váltás azonnali legyen.
-                                  // =============================================================
                                   Text(
                                     station.name,
                                     style: theme.textTheme.headlineMedium,
@@ -917,7 +992,6 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
                                         final newIndex = radioProvider.stations.indexWhere((s) => s.id == station.id);
                                         if (newIndex != -1) {
                                           radioProvider.pageController.jumpToPage(newIndex);
-                                          radioProvider.setStationByIndex(newIndex);
                                         }
                                         Navigator.pop(context);
                                       }
@@ -928,7 +1002,6 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
                                 final newIndex = radioProvider.stations.indexWhere((s) => s.id == station.id);
                                 if (newIndex != -1) {
                                   radioProvider.pageController.jumpToPage(newIndex);
-                                  radioProvider.setStationByIndex(newIndex);
                                 }
                                 Navigator.pop(context);
                               }
@@ -1072,7 +1145,6 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                                         final newIndex = radioProvider.favoriteStations.indexWhere((s) => s.id == station.id);
                                         if (newIndex != -1) {
                                           radioProvider.pageController.jumpToPage(newIndex);
-                                          radioProvider.setStationByIndex(newIndex);
                                         }
                                         Navigator.pop(context);
                                       }
@@ -1296,18 +1368,18 @@ class SettingsSheet extends StatelessWidget {
   ButtonStyle _segmentedButtonStyle(BuildContext context) {
     final theme = Theme.of(context);
     return ButtonStyle(
-        backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.selected)) return theme.primaryColor;
+        backgroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(MaterialState.selected)) return theme.primaryColor;
           return theme.colorScheme.surfaceContainerHighest.withOpacity(0.5);
         }),
-        foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.selected)) return theme.colorScheme.onPrimary;
+        foregroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(MaterialState.selected)) return theme.colorScheme.onPrimary;
           return theme.colorScheme.onSurface;
         }),
         enableFeedback: true,
         animationDuration: kAppAnimationDuration,
-        shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
+        shape: MaterialStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        padding: MaterialStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
     );
   }
 }
