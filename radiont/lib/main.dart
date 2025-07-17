@@ -1,4 +1,4 @@
-import 'dart:async';
+ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -349,7 +349,15 @@ class RadioProvider extends ChangeNotifier {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // === MÓDOSÍTÁS KEZDETE (HIBÁK JAVÍTÁSA) ===
+  // === MÓDOSÍTÁS KEZDETE (KÉPERNYŐ FORGATÁS TILTÁSA) ===
+  // Beállítjuk a preferált orientációt csak álló módra.
+  // Ez megakadályozza, hogy az alkalmazás fekvő módba forduljon.
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  // === MÓDOSÍTÁS VÉGE ===
+
   // A just_audio_background szolgáltatás inicializálása a legújabb API szerint.
   // A vezérlőgombokat már nem kell manuálisan megadni, a csomag automatikusan kezeli őket.
   await JustAudioBackground.init(
@@ -358,7 +366,6 @@ Future<void> main() async {
     androidNotificationOngoing: true,
     androidNotificationIcon: 'mipmap/ic_launcher',
   );
-  // === MÓDOSÍTÁS VÉGE ===
 
   final prefs = await SharedPreferences.getInstance();
   runApp(
