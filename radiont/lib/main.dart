@@ -16,8 +16,10 @@ import 'package:volume_controller/volume_controller.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 
-// Győződj meg róla, hogy ez a fájl létezik és tartalmazza az API logikát.
 import 'api_service.dart';
+import 'providers/music_provider.dart';
+import 'screens/music_screen.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 
 const Duration kAppAnimationDuration = Duration(milliseconds: 500);
 
@@ -45,7 +47,7 @@ class ThemeProvider extends ChangeNotifier {
 
   void _loadSettings() {
     _themeMode = ThemeMode.values.firstWhere((e) => e.toString() == 'ThemeMode.${prefs.getString('themeMode') ?? 'system'}', orElse: () => ThemeMode.system);
-    _selectedColor = Color(prefs.getInt('themeColor') ?? const Color(0xFF00FFFF).value);
+    _selectedColor = Color(prefs.getInt('themeColor') ?? const Color(0xFF00FFFF).toARGB32());
     _isAlwaysOn = prefs.getBool('isAlwaysOn') ?? false;
     WakelockPlus.toggle(enable: _isAlwaysOn);
     _isFullScreen = prefs.getBool('isFullScreen') ?? false;
@@ -83,8 +85,8 @@ class ThemeProvider extends ChangeNotifier {
     final isDark = brightness == Brightness.dark;
     final primary = _selectedColor;
     final scaffoldBg = isDark ? const Color(0xFF050816) : const Color(0xFFF8F9FA);
-    final surfaceColor = isDark ? const Color(0xFF1C1C2E).withOpacity(0.5) : Colors.white;
-    final onBgColor = isDark ? Colors.white.withOpacity(0.9) : Colors.black87;
+    final surfaceColor = isDark ? const Color(0xFF1C1C2E).withValues(alpha: 0.5) : Colors.white;
+    final onBgColor = isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87;
     final headlineColor = isDark ? Colors.white : Colors.black;
 
     final baseTheme = ThemeData(
@@ -96,7 +98,7 @@ class ThemeProvider extends ChangeNotifier {
             headlineMedium: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1, fontSize: 24, color: headlineColor),
             titleLarge: TextStyle(fontWeight: FontWeight.bold, color: headlineColor),
             titleMedium: TextStyle(fontWeight: FontWeight.w600, color: onBgColor),
-            bodyMedium: TextStyle(color: onBgColor.withOpacity(0.8), fontSize: 14),
+            bodyMedium: TextStyle(color: onBgColor.withValues(alpha: 0.8), fontSize: 14),
             labelLarge: const TextStyle(fontWeight: FontWeight.bold)
         ),
       ),
@@ -373,6 +375,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider(prefs)),
         ChangeNotifierProvider(create: (_) => RadioProvider(prefs)),
+        ChangeNotifierProvider(create: (_) => MusicProvider(prefs)),
       ],
       child: const RadiontApp(),
     ),
@@ -410,6 +413,18 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   String _currentTime = '';
   Timer? _timer;
+  bool _isMusicMode = false;
+
+  void _toggleMode() {
+    setState(() {
+      _isMusicMode = !_isMusicMode;
+      if (_isMusicMode) {
+        context.read<RadioProvider>().audioPlayer.stop();
+      } else {
+        context.read<MusicProvider>().audioPlayer.stop();
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -444,25 +459,64 @@ class _MainScreenState extends State<MainScreen> {
       body: Stack(
         children: [
           const AnimatedBackground(),
-          if (!radioProvider.isLoading && radioProvider.stations.isNotEmpty && radioProvider.currentStation.imageUrl.isNotEmpty)
-            AnimatedSwitcher(
-                duration: const Duration(milliseconds: 800),
-                transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-                child: Container(
-                    key: ValueKey<String>(radioProvider.currentStation.imageUrl),
+          // Radio Háttérkép
+          if (!_isMusicMode)
+            Selector<RadioProvider, String>(
+              selector: (_, provider) => provider.currentStation.imageUrl,
+              builder: (context, imageUrl, child) {
+                if (radioProvider.isLoading || radioProvider.stations.isEmpty || imageUrl.isEmpty) return const SizedBox.shrink();
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 800),
+                  transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                  child: Container(
+                    key: ValueKey<String>(imageUrl),
                     decoration: BoxDecoration(
-                        image: DecorationImage(
-                            image: NetworkImage(radioProvider.currentStation.imageUrl),
-                            fit: BoxFit.cover
-                        )
+                      image: DecorationImage(
+                        image: NetworkImage(imageUrl),
+                        fit: BoxFit.cover
+                      )
                     ),
                     child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                        child: Container(
-                            color: (isDark ? Colors.black : Colors.white).withOpacity(isDark ? 0.6 : 0.2)
-                        )
+                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: Container(
+                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: isDark ? 0.6 : 0.2)
+                      )
                     )
-                )
+                  )
+                );
+              },
+            ),
+          
+          // Zene Háttérkép
+          if (_isMusicMode)
+            Selector<MusicProvider, int?>(
+              selector: (_, provider) => provider.currentSong?.id,
+              builder: (context, songId, child) {
+                if (songId == null) return const SizedBox.shrink();
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 1000),
+                  transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                  child: Stack(
+                    key: ValueKey<int>(songId),
+                    fit: StackFit.expand,
+                    children: [
+                      QueryArtworkWidget(
+                        id: songId,
+                        type: ArtworkType.AUDIO,
+                        artworkFit: BoxFit.cover,
+                        nullArtworkWidget: Container(color: Colors.transparent),
+                        keepOldArtwork: true, // Megtartja a régit amíg az új töltődik
+                      ),
+                      BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                        child: Container(
+                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: isDark ? 0.7 : 0.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
 
           SafeArea(
@@ -483,9 +537,15 @@ class _MainScreenState extends State<MainScreen> {
                 key: const ValueKey('content'),
                 children: [
                   if (themeProvider.isFullScreen) const SizedBox(height: 10),
-                  TopBar(currentTime: _currentTime),
+                  TopBar(
+                    currentTime: _currentTime,
+                    isMusicMode: _isMusicMode,
+                    onToggleMode: _toggleMode,
+                  ),
                   Expanded(
-                    child: stationsToDisplay.isEmpty
+                    child: _isMusicMode 
+                        ? const MusicScreen() 
+                        : (stationsToDisplay.isEmpty
                         ? Center(
                         child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 40.0),
@@ -527,28 +587,29 @@ class _MainScreenState extends State<MainScreen> {
                           child: RadioCard(station: station),
                         );
                       },
+                    )),
+                  ),
+                  if (!_isMusicMode)
+                    GestureDetector(
+                        onVerticalDragEnd: (details) {
+                          if (details.primaryVelocity != null && details.primaryVelocity! < -500) _showFavoritesSheet();
+                        },
+                        child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                  width: 40,
+                                  height: 5,
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+                                      borderRadius: BorderRadius.circular(10)
+                                  )
+                              ),
+                              const PlayerControls()
+                            ]
+                        )
                     ),
-                  ),
-                  GestureDetector(
-                      onVerticalDragEnd: (details) {
-                        if (details.primaryVelocity != null && details.primaryVelocity! < -500) _showFavoritesSheet();
-                      },
-                      child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                                width: 40,
-                                height: 5,
-                                margin: const EdgeInsets.only(bottom: 10),
-                                decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                                    borderRadius: BorderRadius.circular(10)
-                                )
-                            ),
-                            const PlayerControls()
-                          ]
-                      )
-                  ),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -617,13 +678,13 @@ class RadioCard extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                      color: theme.primaryColor.withOpacity(0.6),
+                      color: theme.primaryColor.withValues(alpha: 0.6),
                       blurRadius: 30,
                       spreadRadius: 0,
                       offset: const Offset(0, 10)
                   ),
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 25,
                       spreadRadius: -5,
                       offset: const Offset(0, 15)
@@ -679,7 +740,7 @@ class PlayerControls extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                      color: theme.primaryColor.withOpacity(0.7),
+                      color: theme.primaryColor.withValues(alpha: 0.7),
                       blurRadius: 20,
                       spreadRadius: 2
                   )
@@ -711,16 +772,16 @@ class PlayerControls extends StatelessWidget {
         border: 1.5,
         linearGradient: LinearGradient(
             colors: [
-              theme.colorScheme.surface.withOpacity(0.15),
-              theme.colorScheme.surface.withOpacity(0.05)
+              theme.colorScheme.surface.withValues(alpha: 0.15),
+              theme.colorScheme.surface.withValues(alpha: 0.05)
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight
         ),
         borderGradient: LinearGradient(
             colors: [
-              theme.primaryColor.withOpacity(0.5),
-              theme.colorScheme.surface.withOpacity(0.1)
+              theme.primaryColor.withValues(alpha: 0.5),
+              theme.colorScheme.surface.withValues(alpha: 0.1)
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight
@@ -783,7 +844,7 @@ class PlayerControls extends StatelessWidget {
                                 icon: const Icon(Icons.skip_previous_rounded),
                                 onPressed: radioProvider.previousStation,
                                 iconSize: 38,
-                                color: theme.iconTheme.color?.withOpacity(0.8)
+                                color: theme.iconTheme.color?.withValues(alpha: 0.8)
                             )
                         ),
                         playPauseButton(),
@@ -792,7 +853,7 @@ class PlayerControls extends StatelessWidget {
                                 icon: const Icon(Icons.skip_next_rounded),
                                 onPressed: radioProvider.nextStation,
                                 iconSize: 38,
-                                color: theme.iconTheme.color?.withOpacity(0.8)
+                                color: theme.iconTheme.color?.withValues(alpha: 0.8)
                             )
                         )
                       ]
@@ -802,7 +863,7 @@ class PlayerControls extends StatelessWidget {
                         Icon(
                             Icons.volume_mute_rounded,
                             size: 22,
-                            color: theme.iconTheme.color?.withOpacity(0.6)
+                            color: theme.iconTheme.color?.withValues(alpha: 0.6)
                         ),
                         Expanded(
                             child: Slider(
@@ -815,7 +876,7 @@ class PlayerControls extends StatelessWidget {
                         Icon(
                             Icons.volume_up_rounded,
                             size: 22,
-                            color: theme.iconTheme.color?.withOpacity(0.6)
+                            color: theme.iconTheme.color?.withValues(alpha: 0.6)
                         )
                       ]
                   )
@@ -938,7 +999,7 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
                   height: 5,
                   margin: const EdgeInsets.symmetric(vertical: 15),
                   decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withOpacity(0.3),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(10)
                   )
               ),
@@ -955,7 +1016,7 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
                         borderSide: BorderSide.none
                     ),
                     filled: true,
-                    fillColor: theme.colorScheme.surface.withOpacity(0.2),
+                    fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                   ),
                 ),
@@ -991,7 +1052,7 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
                                   child: IconButton(
                                       icon: Icon(
                                           Icons.play_circle_outline_rounded,
-                                          color: theme.primaryColor.withOpacity(0.7),
+                                          color: theme.primaryColor.withValues(alpha: 0.7),
                                           size: 30
                                       ),
                                       onPressed: () async {
@@ -1085,7 +1146,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                   height: 5,
                   margin: const EdgeInsets.symmetric(vertical: 15),
                   decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withOpacity(0.3),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(10)
                   )
               ),
@@ -1102,7 +1163,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                         borderSide: BorderSide.none
                     ),
                     filled: true,
-                    fillColor: theme.colorScheme.surface.withOpacity(0.2),
+                    fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                   ),
                 ),
@@ -1212,7 +1273,7 @@ class SettingsSheet extends StatelessWidget {
                           subtitle: Text("Elrejti a rendszer állapotsávját", style: theme.textTheme.bodyMedium),
                           value: themeProvider.isFullScreen,
                           onChanged: themeProvider.setFullScreen,
-                          activeColor: theme.primaryColor,
+                          activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10)
                       ),
                       const Divider(height: 25, thickness: 0.5),
@@ -1222,7 +1283,7 @@ class SettingsSheet extends StatelessWidget {
                           subtitle: Text("Megakadályozza a képernyő kikapcsolását", style: theme.textTheme.bodyMedium),
                           value: themeProvider.isAlwaysOn,
                           onChanged: themeProvider.setAlwaysOn,
-                          activeColor: theme.primaryColor,
+                          activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10)
                       ),
                       SwitchListTile(
@@ -1230,7 +1291,7 @@ class SettingsSheet extends StatelessWidget {
                           subtitle: Text("A főképernyőn csak a kedvencek jelennek meg", style: theme.textTheme.bodyMedium),
                           value: radioProvider.swipeOnlyFavorites,
                           onChanged: radioProvider.setSwipeOnlyFavorites,
-                          activeColor: theme.primaryColor,
+                          activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10)
                       ),
                       if (!themeProvider.backgroundPlayback)
@@ -1242,7 +1303,7 @@ class SettingsSheet extends StatelessWidget {
                             if (value) {
                               await showDialog(
                                 context: context,
-                                barrierColor: Colors.black.withOpacity(0.4),
+                                barrierColor: Colors.black.withValues(alpha: 0.4),
                                 builder: (BuildContext dialogContext) {
                                   return BackdropFilter(
                                     filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
@@ -1302,7 +1363,7 @@ class SettingsSheet extends StatelessWidget {
                               );
                             }
                           },
-                          activeColor: theme.primaryColor,
+                          activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
                       const Divider(height: 25, thickness: 0.5),
@@ -1347,7 +1408,7 @@ class SettingsSheet extends StatelessWidget {
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                      color: themeProvider.selectedColor.withOpacity(0.7),
+                                      color: themeProvider.selectedColor.withValues(alpha: 0.7),
                                       blurRadius: 15,
                                       spreadRadius: 3
                                   )
@@ -1362,7 +1423,7 @@ class SettingsSheet extends StatelessWidget {
                           subtitle: Text("Alapértelmezetten fehér", style: theme.textTheme.bodyMedium),
                           value: themeProvider.playButtonBlack,
                           onChanged: themeProvider.setPlayButtonBlack,
-                          activeColor: theme.primaryColor,
+                          activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10)
                       ),
                     ]
@@ -1375,18 +1436,18 @@ class SettingsSheet extends StatelessWidget {
   ButtonStyle _segmentedButtonStyle(BuildContext context) {
     final theme = Theme.of(context);
     return ButtonStyle(
-        backgroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(MaterialState.selected)) return theme.primaryColor;
-          return theme.colorScheme.surfaceContainerHighest.withOpacity(0.5);
+        backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(WidgetState.selected)) return theme.primaryColor;
+          return theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
         }),
-        foregroundColor: MaterialStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(MaterialState.selected)) return theme.colorScheme.onPrimary;
+        foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(WidgetState.selected)) return theme.colorScheme.onPrimary;
           return theme.colorScheme.onSurface;
         }),
         enableFeedback: true,
         animationDuration: kAppAnimationDuration,
-        shape: MaterialStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-        padding: MaterialStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
+        shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
     );
   }
 }
@@ -1428,9 +1489,9 @@ class BackgroundPainter extends CustomPainter {
     final color1 = primaryColor;
     final color2 = HSLColor.fromColor(primaryColor).withLightness(0.7).toColor();
     const double blurAmount = 150.0;
-    final paint1 = Paint()..color = color1.withOpacity(0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
-    final paint2 = Paint()..color = color2.withOpacity(0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
-    final paint3 = Paint()..color = color1.withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint1 = Paint()..color = color1.withValues(alpha: 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint2 = Paint()..color = color2.withValues(alpha: 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint3 = Paint()..color = color1.withValues(alpha: 0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
     final progress = animationValue * 2 * pi;
     final position1 = Offset(size.width * 0.5 + sin(progress) * size.width * 0.4, size.height * 0.5 + cos(progress) * size.height * 0.4);
     final position2 = Offset(size.width * 0.5 + cos(progress * 0.8) * size.width * 0.5, size.height * 0.2 + sin(progress * 0.8) * size.height * 0.3);
@@ -1460,16 +1521,16 @@ class GlassButton extends StatelessWidget {
           border: 1,
           linearGradient: LinearGradient(
               colors: [
-                theme.colorScheme.surface.withOpacity(0.2),
-                theme.colorScheme.surface.withOpacity(0.1)
+                theme.colorScheme.surface.withValues(alpha: 0.2),
+                theme.colorScheme.surface.withValues(alpha: 0.1)
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight
           ),
           borderGradient: LinearGradient(
               colors: [
-                theme.primaryColor.withOpacity(0.6),
-                theme.colorScheme.surface.withOpacity(0.2)
+                theme.primaryColor.withValues(alpha: 0.6),
+                theme.colorScheme.surface.withValues(alpha: 0.2)
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight
@@ -1482,7 +1543,14 @@ class GlassButton extends StatelessWidget {
 
 class TopBar extends StatelessWidget {
   final String currentTime;
-  const TopBar({super.key, required this.currentTime});
+  final bool isMusicMode;
+  final VoidCallback onToggleMode;
+  const TopBar({
+    super.key, 
+    required this.currentTime, 
+    required this.isMusicMode, 
+    required this.onToggleMode,
+  });
   @override Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
@@ -1505,12 +1573,12 @@ class TopBar extends StatelessWidget {
                       alignment: Alignment.center,
                       border: 1,
                       linearGradient: LinearGradient(
-                          colors: [theme.colorScheme.surface.withOpacity(0.2), theme.colorScheme.surface.withOpacity(0.1)],
+                          colors: [theme.colorScheme.surface.withValues(alpha: 0.2), theme.colorScheme.surface.withValues(alpha: 0.1)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight
                       ),
                       borderGradient: LinearGradient(
-                          colors: [theme.primaryColor.withOpacity(0.6), theme.colorScheme.surface.withOpacity(0.2)],
+                          colors: [theme.primaryColor.withValues(alpha: 0.6), theme.colorScheme.surface.withValues(alpha: 0.2)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight
                       ),
@@ -1520,15 +1588,22 @@ class TopBar extends StatelessWidget {
               Row(
                   children: [
                     GlassButton(
-                        icon: Icons.queue_music_rounded,
-                        onPressed: () => showModalBottomSheet(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            isScrollControlled: true,
-                            builder: (_) => const AllStationsSheet()
-                        )
+                        icon: isMusicMode ? Icons.radio_rounded : Icons.library_music_rounded,
+                        onPressed: onToggleMode
                     ),
                     const SizedBox(width: 12),
+                    if (!isMusicMode) ...[
+                      GlassButton(
+                          icon: Icons.queue_music_rounded,
+                          onPressed: () => showModalBottomSheet(
+                              context: context,
+                              backgroundColor: Colors.transparent,
+                              isScrollControlled: true,
+                              builder: (_) => const AllStationsSheet()
+                          )
+                      ),
+                      const SizedBox(width: 12),
+                    ],
                     GlassButton(
                         icon: Icons.settings_outlined,
                         onPressed: () => showModalBottomSheet(
@@ -1551,8 +1626,8 @@ abstract class BottomSheetStyles {
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Theme.of(context).colorScheme.surface.withOpacity(0.4),
-        Theme.of(context).colorScheme.surface.withOpacity(0.2)
+        Theme.of(context).colorScheme.surface.withValues(alpha: 0.4),
+        Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
       ]
   );
 
@@ -1560,8 +1635,8 @@ abstract class BottomSheetStyles {
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Theme.of(context).primaryColor.withOpacity(0.6),
-        Theme.of(context).colorScheme.surface.withOpacity(0.2)
+        Theme.of(context).primaryColor.withValues(alpha: 0.6),
+        Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
       ]
   );
 }
