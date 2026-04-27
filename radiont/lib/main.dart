@@ -1486,6 +1486,28 @@ class SettingsSheet extends StatelessWidget {
                         activeColor: theme.primaryColor,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
+                      // === ARCHIVÁLT ZENÉK ===
+                      Builder(builder: (context) {
+                        final mp = context.watch<MusicProvider>();
+                        final archived = mp.archivedSongs;
+                        if (archived.isEmpty) return const SizedBox.shrink();
+                        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Divider(height: 25, thickness: 0.5),
+                          Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Archivált zenék", style: theme.textTheme.titleMedium)),
+                          const SizedBox(height: 5),
+                          Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("${archived.length} zene elrejtve", style: theme.textTheme.bodyMedium)),
+                          const SizedBox(height: 10),
+                          ...archived.map((song) => ListTile(
+                            title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
+                            subtitle: Text(song.artist ?? "Ismeretlen", style: theme.textTheme.bodySmall),
+                            trailing: TextButton(
+                              child: Text("Visszaállítás", style: TextStyle(color: theme.primaryColor)),
+                              onPressed: () => mp.unarchiveSong(song.id),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          )),
+                        ]);
+                      }),
                     ]
                 )
             )
