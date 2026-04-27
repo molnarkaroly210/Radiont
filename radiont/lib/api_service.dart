@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'services/dns_service.dart';
 
 class RadioStation {
   final String id;
@@ -38,7 +39,11 @@ class RadioBrowserApi {
 
   Future<List<RadioStation>> fetchStations() async {
     try {
-      final response = await http.get(Uri.parse(_baseUrl));
+      // Privát DNS feloldás az API szerver számára
+      final uri = Uri.parse(_baseUrl);
+      await DnsService.resolve(uri.host);
+
+      final response = await http.get(uri);
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonData = json.decode(response.body);

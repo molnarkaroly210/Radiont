@@ -89,83 +89,144 @@ class _MusicScreenState extends State<MusicScreen> {
       );
     }
 
-    return Column(
+    return Stack(
       children: [
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            itemCount: musicProvider.songs.length,
-            itemBuilder: (context, index) {
-              final song = musicProvider.songs[index];
-              final isPlaying = musicProvider.currentIndex == index && musicProvider.audioPlayer.playing;
-              final isCurrent = musicProvider.currentIndex == index;
+        Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                itemCount: musicProvider.songs.length,
+                itemBuilder: (context, index) {
+                  final song = musicProvider.songs[index];
+                  final isPlaying = musicProvider.currentIndex == index && musicProvider.audioPlayer.playing;
+                  final isCurrent = musicProvider.currentIndex == index;
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 10, left: 5, right: 5),
-                decoration: BoxDecoration(
-                  color: isCurrent 
-                    ? theme.primaryColor.withValues(alpha: 0.15) 
-                    : theme.colorScheme.surface.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isCurrent 
-                      ? theme.primaryColor.withValues(alpha: 0.3) 
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.05)
-                  ),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-                  leading: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: QueryArtworkWidget(
-                      id: song.id,
-                      type: ArtworkType.AUDIO,
-                      nullArtworkWidget: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.music_note, color: theme.primaryColor),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10, left: 5, right: 5),
+                    decoration: BoxDecoration(
+                      color: isCurrent 
+                        ? theme.primaryColor.withValues(alpha: 0.15) 
+                        : theme.colorScheme.surface.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isCurrent 
+                          ? theme.primaryColor.withValues(alpha: 0.3) 
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.05)
                       ),
                     ),
-                  ),
-                  title: Text(
-                    song.title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                      color: isCurrent ? theme.primaryColor : null,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: QueryArtworkWidget(
+                          id: song.id,
+                          type: ArtworkType.AUDIO,
+                          nullArtworkWidget: Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: theme.primaryColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.music_note, color: theme.primaryColor),
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        song.title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                          color: isCurrent ? theme.primaryColor : null,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        song.artist ?? "Ismeretlen Előadó",
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: isPlaying
+                          ? LoadingAnimationWidget.beat(color: theme.primaryColor, size: 20)
+                          : (isCurrent ? Icon(Icons.play_circle_outline, color: theme.primaryColor, size: 24) : null),
+                      onTap: () {
+                        if (musicProvider.currentIndex != index) {
+                          musicProvider.playSong(index);
+                        } else {
+                          musicProvider.togglePlayPause();
+                        }
+                      },
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    song.artist ?? "Ismeretlen Előadó",
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: isPlaying
-                      ? LoadingAnimationWidget.beat(color: theme.primaryColor, size: 20)
-                      : (isCurrent ? Icon(Icons.play_circle_outline, color: theme.primaryColor, size: 24) : null),
-                  onTap: () {
-                    if (musicProvider.currentIndex != index) {
-                      musicProvider.playSong(index);
-                    } else {
-                      musicProvider.togglePlayPause();
-                    }
-                  },
-                ),
-              );
-            },
-          ),
+                  );
+                },
+              ),
+            ),
+            // Mini player vagy teljes lejátszó sáv a lista alján
+            if (musicProvider.currentSong != null)
+              const MusicPlayerControls(),
+          ],
         ),
-        // Mini player vagy teljes lejátszó sáv a lista alján
-        if (musicProvider.currentSong != null)
-          const MusicPlayerControls(),
+        if (musicProvider.isDownloading)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.6),
+              child: Center(
+                child: GlassmorphicContainer(
+                  width: 280,
+                  height: 180,
+                  borderRadius: 30,
+                  blur: 20,
+                  border: 1.5,
+                  linearGradient: LinearGradient(
+                    colors: [
+                      theme.colorScheme.surface.withValues(alpha: 0.2),
+                      theme.colorScheme.surface.withValues(alpha: 0.1)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderGradient: LinearGradient(
+                    colors: [
+                      theme.primaryColor.withValues(alpha: 0.6),
+                      theme.colorScheme.surface.withValues(alpha: 0.2)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "Letöltés...",
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 15),
+                        LinearProgressIndicator(
+                          value: musicProvider.downloadProgress,
+                          backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.2),
+                          valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
+                          borderRadius: BorderRadius.circular(10),
+                          minHeight: 8,
+                        ),
+                        const SizedBox(height: 15),
+                        Text(
+                          musicProvider.downloadStatus,
+                          style: theme.textTheme.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

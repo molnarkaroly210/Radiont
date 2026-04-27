@@ -1,4 +1,5 @@
  import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -19,6 +20,8 @@ import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'api_service.dart';
 import 'providers/music_provider.dart';
 import 'screens/music_screen.dart';
+import 'screens/download_webview_screen.dart';
+import 'services/dns_service.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 const Duration kAppAnimationDuration = Duration(milliseconds: 500);
@@ -35,6 +38,7 @@ class ThemeProvider extends ChangeNotifier {
   bool _isFullScreen = false;
   bool _backgroundPlayback = false;
   bool _playButtonBlack = false;
+  String _dnsProvider = DnsService.adguardDefault;
 
   ThemeMode get themeMode => _themeMode;
   Color get selectedColor => _selectedColor;
@@ -42,6 +46,7 @@ class ThemeProvider extends ChangeNotifier {
   bool get isFullScreen => _isFullScreen;
   bool get backgroundPlayback => _backgroundPlayback;
   bool get playButtonBlack => _playButtonBlack;
+  String get dnsProvider => _dnsProvider;
 
   ThemeProvider(this.prefs) { _loadSettings(); }
 
@@ -53,6 +58,8 @@ class ThemeProvider extends ChangeNotifier {
     _isFullScreen = prefs.getBool('isFullScreen') ?? false;
     _backgroundPlayback = prefs.getBool('backgroundPlayback') ?? false;
     _playButtonBlack = prefs.getBool('playButtonBlack') ?? false;
+    _dnsProvider = prefs.getString('dnsProvider') ?? DnsService.adguardDefault;
+    DnsService.setProvider(_dnsProvider);
     _applyFullScreen();
     notifyListeners();
   }
@@ -77,6 +84,13 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   Future<void> setPlayButtonBlack(bool value) async { _playButtonBlack = value; await prefs.setBool('playButtonBlack', value); notifyListeners(); }
+
+  Future<void> setDnsProvider(String dohUrl) async {
+    _dnsProvider = dohUrl;
+    DnsService.setProvider(dohUrl);
+    await prefs.setString('dnsProvider', dohUrl);
+    notifyListeners();
+  }
 
   ThemeData getDarkTheme() => _createThemeData(Brightness.dark);
   ThemeData getLightTheme() => _createThemeData(Brightness.light);
@@ -351,6 +365,12 @@ class RadioProvider extends ChangeNotifier {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // === PRIVÁT DNS BEÁLLÍTÁSA ===
+  // Az alkalmazás saját DNS-feloldót használ (Cloudflare 1.1.1.1 DoH)
+  // a telefon alapértelmezett DNS-e helyett.
+  // Ez megkerüli az ISP/hálózati szintű DNS-blokkolásokat.
+  HttpOverrides.global = PrivateDnsHttpOverrides();
+
   // === MÓDOSÍTÁS KEZDETE (KÉPERNYŐ FORGATÁS TILTÁSA) ===
   // Beállítjuk a preferált orientációt csak álló módra.
   // Ez megakadályozza, hogy az alkalmazás fekvő módba forduljon.
@@ -541,6 +561,13 @@ class _MainScreenState extends State<MainScreen> {
                     currentTime: _currentTime,
                     isMusicMode: _isMusicMode,
                     onToggleMode: _toggleMode,
+                    onDownload: () async {
+                      await Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadWebViewScreen()));
+                      // WebView-ból visszatérés után frissítjük a zenélistát
+                      if (mounted) {
+                        context.read<MusicProvider>().fetchSongs();
+                      }
+                    },
                   ),
                   Expanded(
                     child: _isMusicMode 
@@ -1426,6 +1453,39 @@ class SettingsSheet extends StatelessWidget {
                           activeThumbColor: theme.primaryColor,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10)
                       ),
+                      const Divider(height: 25, thickness: 0.5),
+                      Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Privát DNS", style: theme.textTheme.titleMedium)),
+                      const SizedBox(height: 5),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 10.0),
+                        child: Text(
+                          "Az alkalmazás saját DNS-feloldót használ a hálózati szűrők megkerüléséhez.",
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      RadioListTile<String>(
+                        title: Text("dns.adguard.com", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
+                        subtitle: Text("Alapértelmezett AdGuard DNS", style: theme.textTheme.bodyMedium),
+                        value: DnsService.adguardDefault,
+                        groupValue: themeProvider.dnsProvider,
+                        onChanged: (value) {
+                          if (value != null) themeProvider.setDnsProvider(value);
+                        },
+                        activeColor: theme.primaryColor,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      RadioListTile<String>(
+                        title: Text("dns.adguard-dns.com", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
+                        subtitle: Text("Alternatív AdGuard DNS", style: theme.textTheme.bodyMedium),
+                        value: DnsService.adguardDns,
+                        groupValue: themeProvider.dnsProvider,
+                        onChanged: (value) {
+                          if (value != null) themeProvider.setDnsProvider(value);
+                        },
+                        activeColor: theme.primaryColor,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
                     ]
                 )
             )
@@ -1545,11 +1605,13 @@ class TopBar extends StatelessWidget {
   final String currentTime;
   final bool isMusicMode;
   final VoidCallback onToggleMode;
+  final VoidCallback onDownload;
   const TopBar({
     super.key, 
     required this.currentTime, 
     required this.isMusicMode, 
     required this.onToggleMode,
+    required this.onDownload,
   });
   @override Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1592,6 +1654,13 @@ class TopBar extends StatelessWidget {
                         onPressed: onToggleMode
                     ),
                     const SizedBox(width: 12),
+                    if (isMusicMode) ...[
+                      GlassButton(
+                          icon: Icons.download_rounded,
+                          onPressed: onDownload,
+                      ),
+                      const SizedBox(width: 12),
+                    ],
                     if (!isMusicMode) ...[
                       GlassButton(
                           icon: Icons.queue_music_rounded,

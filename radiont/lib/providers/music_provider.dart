@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import 'package:file_saver/file_saver.dart';
 
 class MusicProvider extends ChangeNotifier {
   final SharedPreferences prefs;
@@ -17,6 +21,11 @@ class MusicProvider extends ChangeNotifier {
   bool _isShuffleModeEnabled = false;
   LoopMode _loopMode = LoopMode.off;
 
+  // Letöltési állapot (a MusicScreen overlay-hez, ha kell)
+  bool _isDownloading = false;
+  double _downloadProgress = 0;
+  String _downloadStatus = "";
+
   MusicProvider(this.prefs) {
     _init();
   }
@@ -28,6 +37,9 @@ class MusicProvider extends ChangeNotifier {
   SongModel? get currentSong => _songs.isNotEmpty && _currentIndex < _songs.length ? _songs[_currentIndex] : null;
   bool get isShuffleModeEnabled => _isShuffleModeEnabled;
   LoopMode get loopMode => _loopMode;
+  bool get isDownloading => _isDownloading;
+  double get downloadProgress => _downloadProgress;
+  String get downloadStatus => _downloadStatus;
 
   Future<void> _init() async {
     audioPlayer.playerStateStream.listen((state) {
@@ -71,12 +83,31 @@ class MusicProvider extends ChangeNotifier {
   }
 
   Future<void> requestPermission() async {
-    // Kifejezetten a Permission Handlerrel is megpróbáljuk
-    var status = await Permission.storage.request();
-    var audioStatus = await Permission.audio.request();
+    if (Platform.isAndroid) {
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.storage,
+        Permission.audio,
+        Permission.photos,
+        Permission.videos,
+      ].request();
+      
+      _hasPermission = (statuses[Permission.audio]?.isGranted ?? false) || 
+                       (statuses[Permission.storage]?.isGranted ?? false) ||
+                       (statuses[Permission.photos]?.isGranted ?? false) ||
+                       (statuses[Permission.videos]?.isGranted ?? false);
+
+      if (!_hasPermission) {
+        bool permanentlyDenied = (statuses[Permission.audio]?.isPermanentlyDenied ?? false) || 
+                                 (statuses[Permission.storage]?.isPermanentlyDenied ?? false);
+        if (permanentlyDenied) {
+          await openAppSettings();
+        }
+      }
+    } else {
+      _hasPermission = true; 
+    }
     
-    if (status.isGranted || audioStatus.isGranted) {
-      _hasPermission = true;
+    if (_hasPermission) {
       await fetchSongs();
     }
     notifyListeners();
@@ -93,9 +124,7 @@ class MusicProvider extends ChangeNotifier {
       ignoreCase: true,
     );
 
-    // Kiszűrjük azokat a hangfájlokat, amik nem zenék (pl. rövid értesítéshangok)
-    _songs = allSongs.where((song) => song.isMusic == true && song.duration != null && song.duration! > 30000).toList();
-
+    _songs = allSongs;
     _isLoading = false;
     notifyListeners();
   }
@@ -112,7 +141,7 @@ class MusicProvider extends ChangeNotifier {
           album: song.album ?? "Ismeretlen Album",
           title: song.title,
           artist: song.artist ?? "Ismeretlen Előadó",
-          artUri: null, // Opcionálisan beállítható, de fájlrendszerből bonyolultabb
+          artUri: null,
         ),
       );
     }).toList();
@@ -125,9 +154,7 @@ class MusicProvider extends ChangeNotifier {
       );
       audioPlayer.play();
     } catch (e) {
-      if (kDebugMode) {
-        print("Hiba a lejátszás közben: $e");
-      }
+      if (kDebugMode) print("Hiba a lejátszás közben: $e");
     }
   }
 
@@ -143,10 +170,9 @@ class MusicProvider extends ChangeNotifier {
     if (audioPlayer.hasNext) {
       audioPlayer.seekToNext();
     } else {
-      // Ha nincs következő, akkor az elsőre ugrik ha nem shuffle
-      if(!_isShuffleModeEnabled) {
-          audioPlayer.seek(Duration.zero, index: 0);
-          audioPlayer.play();
+      if (!_isShuffleModeEnabled) {
+        audioPlayer.seek(Duration.zero, index: 0);
+        audioPlayer.play();
       }
     }
   }
@@ -155,7 +181,6 @@ class MusicProvider extends ChangeNotifier {
     if (audioPlayer.hasPrevious) {
       audioPlayer.seekToPrevious();
     } else {
-      // Ha nincs előző, és az elsőn vagyunk, akkor csak elölről kezdi
       audioPlayer.seek(Duration.zero);
     }
   }
@@ -186,6 +211,165 @@ class MusicProvider extends ChangeNotifier {
         break;
     }
     await audioPlayer.setLoopMode(nextMode);
+  }
+
+  // ============================================================
+  // YouTube Zene Letöltés - stream.listen() + callback alapú
+  // ============================================================
+  // Működése:
+  // 1. YoutubeExplode: videó metaadatok + audio manifest lekérése
+  // 2. stream.listen(): byte-ok összegyűjtése memóriába, valós idejű progresszió
+  // 3. onDone: FileSaver mentés + MediaStore szkennelés
+  // 4. A hívó (UI) a callback-eken keresztül kapja a frissítéseket
+  // ============================================================
+
+  Future<void> downloadYoutubeVideo(
+    String url, {
+    void Function(double progress, String status)? onProgress,
+    void Function(String fileName)? onDone,
+    void Function(String error)? onError,
+  }) async {
+    if (url.isEmpty) return;
+
+    // 1. Engedélyek ellenőrzése
+    if (!_hasPermission) {
+      await requestPermission();
+      if (!_hasPermission) {
+        onError?.call("Nincs tárhely engedély. Engedélyezd a beállításokban!");
+        return;
+      }
+    }
+
+    _isDownloading = true;
+    notifyListeners();
+
+    // 2. Video ID kinyerése
+    String? videoId;
+    try {
+      videoId = VideoId.parseVideoId(url);
+    } catch (_) {}
+
+    if (videoId == null) {
+      _isDownloading = false;
+      notifyListeners();
+      onError?.call("Érvénytelen YouTube link.");
+      return;
+    }
+
+    // 3. YouTube motor indítása
+    var yt = YoutubeExplode();
+
+    try {
+      // Videó metaadatok lekérése
+      onProgress?.call(0, "Adatok lekérése...");
+      var video = await yt.videos.get(videoId).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Időtúllépés az adatok lekérésekor."),
+      );
+
+      // Audio manifest lekérése
+      onProgress?.call(0, "Adatfolyam keresése...");
+      var manifest = await yt.videos.streamsClient.getManifest(videoId).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception("Időtúllépés az adatfolyam keresésekor."),
+      );
+
+      // A legjobb minőségű audio-only stream kiválasztása
+      var audioStreamInfo = manifest.audioOnly.withHighestBitrate();
+      var audioStream = yt.videos.streamsClient.get(audioStreamInfo);
+
+      // 4. Fájlnév tisztítása (Kritikus! Illegális karakterek eltávolítása)
+      String safeTitle = video.title.replaceAll(RegExp(r'[\\/<>:"|?*]'), '_');
+      safeTitle = safeTitle.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (safeTitle.isEmpty) safeTitle = 'youtube_audio_$videoId';
+
+      // 5. Stream.listen() - valós idejű progresszióval
+      int totalBytes = audioStreamInfo.size.totalBytes;
+      int downloadedBytes = 0;
+      final List<int> allBytes = [];
+      final Completer<void> completer = Completer<void>();
+
+      onProgress?.call(0, "Letöltés: 0%");
+
+      audioStream.listen(
+        // Minden egyes adatcsomag (chunk) érkezésekor
+        (List<int> chunk) {
+          allBytes.addAll(chunk);
+          downloadedBytes += chunk.length;
+
+          // Százalék kiszámítása és UI frissítés
+          double progress = totalBytes > 0 ? downloadedBytes / totalBytes : 0;
+          String status = "Letöltés: ${(progress * 100).toStringAsFixed(0)}%";
+
+          // Provider állapot frissítése (a MusicScreen overlay-hez)
+          _downloadProgress = progress;
+          _downloadStatus = status;
+          notifyListeners();
+
+          // Callback a StatefulBuilder dialog-hoz (közvetlen UI frissítés!)
+          onProgress?.call(progress, status);
+        },
+
+        // Amikor a stream befejeződött (minden byte megérkezett)
+        onDone: () async {
+          try {
+            // Ellenőrzés: érkezett-e elegendő adat?
+            if (allBytes.length < 1000) {
+              throw Exception("Nem érkezett elegendő adat a szerverről.");
+            }
+
+            // FileSaver mentés (Android Scoped Storage kompatibilis!)
+            onProgress?.call(1.0, "Mentés...");
+            _downloadStatus = "Mentés...";
+            notifyListeners();
+
+            final Uint8List fileBytes = Uint8List.fromList(allBytes);
+            await FileSaver.instance.saveFile(
+              name: safeTitle,
+              bytes: fileBytes,
+              ext: 'm4a',
+              mimeType: MimeType.aac,
+            );
+
+            // MediaStore frissítése, hogy megjelenjen a zenéknél
+            try {
+              await _audioQuery.scanMedia('/storage/emulated/0/');
+            } catch (_) {}
+
+            await fetchSongs();
+
+            // Siker callback
+            onDone?.call("$safeTitle.m4a");
+            if (!completer.isCompleted) completer.complete();
+          } catch (e) {
+            onError?.call(e.toString().replaceAll('Exception: ', ''));
+            if (!completer.isCompleted) completer.completeError(e);
+          }
+        },
+
+        // Hiba esetén (pl. HTTP 403, hálózati hiba)
+        onError: (error) {
+          onError?.call(error.toString());
+          if (!completer.isCompleted) completer.completeError(error);
+        },
+
+        cancelOnError: true,
+      );
+
+      // Megvárjuk, amíg a stream teljesen befejeződik
+      await completer.future;
+
+    } catch (e) {
+      // Bármilyen egyéb hiba (timeout, parse error, stb.)
+      onError?.call(e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      // Erőforrások felszabadítása (KÖTELEZŐ!)
+      yt.close();
+      _isDownloading = false;
+      _downloadProgress = 0;
+      _downloadStatus = "";
+      notifyListeners();
+    }
   }
 
   @override
