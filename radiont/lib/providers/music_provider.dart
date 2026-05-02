@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -16,8 +17,12 @@ enum SortMode { title, artist, dateAdded, duration, playCount }
 
 class MusicProvider extends ChangeNotifier {
   final SharedPreferences prefs;
-  final AudioPlayer audioPlayer = AudioPlayer();
+  late final AndroidEqualizer _equalizer;
+  late final AndroidLoudnessEnhancer _loudnessEnhancer;
+  late final AudioPlayer audioPlayer;
+  bool _equalizerEnabled = false;
   final OnAudioQuery _audioQuery = OnAudioQuery();
+  static final _platform = MethodChannel('com.example.radiont/media_manager');
 
   // === Alapvető zenelista ===
   List<SongModel> _songs = [];
@@ -38,6 +43,14 @@ class MusicProvider extends ChangeNotifier {
   String _searchQuery = '';
   SortMode _sortMode = SortMode.title;
 
+  // === Metaadat felülírás (cím/előadó) ===
+  Map<int, String> _titleOverrides = {};  // songId -> custom title
+  Map<int, String> _artistOverrides = {}; // songId -> custom artist
+
+  // === Címkék ===
+  Map<int, List<String>> _songTags = {};  // songId -> [tag1, tag2, ...]
+  Set<String> _pinnedTags = {};           // Kitűzött címkék a chip sávban
+
   // === Lejátszási sor ===
   List<SongModel> _queue = [];
 
@@ -54,7 +67,29 @@ class MusicProvider extends ChangeNotifier {
   double _downloadProgress = 0;
   String _downloadStatus = "";
 
+  // === Hangbeállítások ===
+  double _playbackSpeed = 1.0;
+  double _playbackPitch = 1.0;
+  bool _isReplayGainEnabled = false;
+  bool _isCrossfadeEnabled = false;
+  Duration _crossfadeDuration = const Duration(seconds: 3);
+  List<double> _equalizerGains = List.filled(5, 0.0); // 5 sávos EQ alapból 0-n
+  bool _isLoudnessEnhancerEnabled = false;
+  double _bassBoostLevel = 0.0; // 0.0 - 1.0 (0% - 100%)
+  String _listSwipeRightAction = 'add_to_queue'; // Alapértelmezett: hozzáadás
+  String _listSwipeLeftAction = 'archive'; // Alapértelmezett: archiválás
+
   MusicProvider(this.prefs) {
+    _equalizer = AndroidEqualizer();
+    _loudnessEnhancer = AndroidLoudnessEnhancer();
+    audioPlayer = AudioPlayer(
+      audioPipeline: AudioPipeline(
+        androidAudioEffects: [
+          _equalizer,
+          _loudnessEnhancer,
+        ],
+      ),
+    );
     _init();
   }
 
@@ -87,6 +122,31 @@ class MusicProvider extends ChangeNotifier {
   String get searchQuery => _searchQuery;
   SortMode get sortMode => _sortMode;
 
+  // Metaadat felülírás
+  String getSongTitle(SongModel song) => _titleOverrides[song.id] ?? song.title;
+  String getSongArtist(SongModel song) => _artistOverrides[song.id] ?? song.artist ?? "Ismeretlen Előadó";
+
+  // Címkék
+  List<String> getSongTags(int songId) => _songTags[songId] ?? [];
+  Set<String> get pinnedTags => _pinnedTags;
+  Set<String> get allTags {
+    final tags = <String>{};
+    for (final t in _songTags.values) { tags.addAll(t); }
+    return tags;
+  }
+
+  // Hangbeállítások
+  double get playbackSpeed => _playbackSpeed;
+  double get playbackPitch => _playbackPitch;
+  bool get isReplayGainEnabled => _isReplayGainEnabled;
+  bool get isCrossfadeEnabled => _isCrossfadeEnabled;
+  Duration get crossfadeDuration => _crossfadeDuration;
+  List<double> get equalizerGains => _equalizerGains;
+  bool get isLoudnessEnhancerEnabled => _isLoudnessEnhancerEnabled;
+  double get bassBoostLevel => _bassBoostLevel;
+  String get listSwipeRightAction => _listSwipeRightAction;
+  String get listSwipeLeftAction => _listSwipeLeftAction;
+
   // Alvásidőzítő
   Duration? get sleepTimerRemaining => _sleepTimerRemaining;
   bool get isSleepTimerActive => _sleepTimer != null;
@@ -110,6 +170,10 @@ class MusicProvider extends ChangeNotifier {
       // Top 25 leggyakrabban hallgatott
       result.sort((a, b) => (getPlayCount(b.id)).compareTo(getPlayCount(a.id)));
       result = result.where((s) => getPlayCount(s.id) > 0).take(25).toList();
+    } else if (_selectedAlbumId != null && _selectedAlbumId!.startsWith('tag:')) {
+      // Címke szűrés
+      final tag = _selectedAlbumId!.substring(4);
+      result = result.where((s) => _songTags[s.id]?.contains(tag) ?? false).toList();
     } else if (_selectedAlbumId != null) {
       final album = _albums.where((a) => a.id == _selectedAlbumId).firstOrNull;
       if (album != null) {
@@ -157,6 +221,10 @@ class MusicProvider extends ChangeNotifier {
     audioPlayer.currentIndexStream.listen((index) {
       if (index != null && index != _currentIndex) {
         _currentIndex = index;
+        // Frissítsük a song ID-t is a queue-ból
+        if (_queue.isNotEmpty && index < _queue.length) {
+          _currentPlayingSongId = _queue[index].id;
+        }
         notifyListeners();
       }
     });
@@ -209,6 +277,57 @@ class MusicProvider extends ChangeNotifier {
     if (sortIndex < SortMode.values.length) {
       _sortMode = SortMode.values[sortIndex];
     }
+
+    // Metaadat felülírások
+    final titlesJson = prefs.getString('music_title_overrides');
+    if (titlesJson != null && titlesJson.isNotEmpty) {
+      try {
+        final d = jsonDecode(titlesJson) as Map<String, dynamic>;
+        _titleOverrides = d.map((k, v) => MapEntry(int.parse(k), v as String));
+      } catch (_) {}
+    }
+    final artistsJson = prefs.getString('music_artist_overrides');
+    if (artistsJson != null && artistsJson.isNotEmpty) {
+      try {
+        final d = jsonDecode(artistsJson) as Map<String, dynamic>;
+        _artistOverrides = d.map((k, v) => MapEntry(int.parse(k), v as String));
+      } catch (_) {}
+    }
+
+    // Címkék
+    final tagsJson = prefs.getString('music_song_tags');
+    if (tagsJson != null && tagsJson.isNotEmpty) {
+      try {
+        final d = jsonDecode(tagsJson) as Map<String, dynamic>;
+        _songTags = d.map((k, v) => MapEntry(int.parse(k), (v as List).cast<String>()));
+      } catch (_) {}
+    }
+    final pinned = prefs.getStringList('music_pinned_tags');
+    if (pinned != null) _pinnedTags = pinned.toSet();
+
+    _listSwipeRightAction = prefs.getString('list_swipe_right') ?? 'add_to_queue';
+    _listSwipeLeftAction = prefs.getString('list_swipe_left') ?? 'archive';
+
+    // Equalizer beállítások betöltése
+    final eqJson = prefs.getString('music_equalizer_gains');
+    if (eqJson != null && eqJson.isNotEmpty) {
+      try {
+        final List<dynamic> decoded = jsonDecode(eqJson);
+        _equalizerGains = decoded.map((e) => (e as num).toDouble()).toList();
+        if (_equalizerGains.length != 5) _equalizerGains = List.filled(5, 0.0);
+      } catch (_) {
+        _equalizerGains = List.filled(5, 0.0);
+      }
+    }
+
+    _isLoudnessEnhancerEnabled = prefs.getBool('music_loudness_enhancer') ?? false;
+    _bassBoostLevel = prefs.getDouble('music_bass_boost') ?? 0.0;
+
+    // Alkalmazzuk az effekteket
+    _applyLoudnessEnhancer();
+    for (int i = 0; i < _equalizerGains.length; i++) {
+      _applyEqualizerGain(i, _equalizerGains[i]);
+    }
   }
 
   Future<void> _saveAlbums() async {
@@ -224,6 +343,26 @@ class MusicProvider extends ChangeNotifier {
     await prefs.setString('music_play_counts', encoded);
   }
 
+  Future<void> _saveTitleOverrides() async {
+    await prefs.setString('music_title_overrides', jsonEncode(_titleOverrides.map((k, v) => MapEntry(k.toString(), v))));
+  }
+
+  Future<void> _saveArtistOverrides() async {
+    await prefs.setString('music_artist_overrides', jsonEncode(_artistOverrides.map((k, v) => MapEntry(k.toString(), v))));
+  }
+
+  Future<void> _saveSongTags() async {
+    await prefs.setString('music_song_tags', jsonEncode(_songTags.map((k, v) => MapEntry(k.toString(), v))));
+  }
+
+  Future<void> _savePinnedTags() async {
+    await prefs.setStringList('music_pinned_tags', _pinnedTags.toList());
+  }
+
+  Future<void> _saveEqualizerGains() async {
+    await prefs.setString('music_equalizer_gains', jsonEncode(_equalizerGains));
+  }
+
   // ================================================================
   // ENGEDÉLYEK & ZENÉK BETÖLTÉSE
   // ================================================================
@@ -237,21 +376,18 @@ class MusicProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final status = await Permission.audio.status;
-      if (status.isGranted) {
+      final audioStatus = await Permission.audio.status;
+      final storageStatus = await Permission.storage.status;
+      final manageStatus = await Permission.manageExternalStorage.status;
+
+      if (audioStatus.isGranted || storageStatus.isGranted || manageStatus.isGranted) {
         _hasPermission = true;
         await fetchSongs();
       } else {
-        final storageStatus = await Permission.storage.status;
-        if (storageStatus.isGranted) {
-          _hasPermission = true;
-          await fetchSongs();
-        } else {
-          // Csak ellenőrzés, nem kérés – a kérést a requestPermission végzi
-          _hasPermission = false;
-          _isLoading = false;
-          notifyListeners();
-        }
+        // Csak ellenőrzés, nem kérés – a kérést a requestPermission végzi
+        _hasPermission = false;
+        _isLoading = false;
+        notifyListeners();
       }
     } finally {
       _isRequestingPermission = false;
@@ -268,7 +404,12 @@ class MusicProvider extends ChangeNotifier {
       if (!status.isGranted) {
         status = await Permission.storage.request();
       }
-      _hasPermission = status.isGranted;
+      // Android 11+ esetén a MANAGE_EXTERNAL_STORAGE is kellhet a törléshez
+      if (await Permission.manageExternalStorage.isDenied) {
+        await Permission.manageExternalStorage.request();
+      }
+      
+      _hasPermission = status.isGranted || await Permission.manageExternalStorage.isGranted;
       if (_hasPermission) {
         await fetchSongs();
       } else {
@@ -316,8 +457,12 @@ class MusicProvider extends ChangeNotifier {
     if (_searchQuery.isEmpty) return songs;
     final q = _searchQuery.toLowerCase();
     return songs.where((s) {
-      return s.title.toLowerCase().contains(q) ||
-          (s.artist?.toLowerCase().contains(q) ?? false);
+      final title = getSongTitle(s).toLowerCase();
+      final artist = getSongArtist(s).toLowerCase();
+      final tags = getSongTags(s.id);
+      return title.contains(q) ||
+          artist.contains(q) ||
+          tags.any((t) => t.contains(q));
     }).toList();
   }
 
@@ -349,13 +494,38 @@ class MusicProvider extends ChangeNotifier {
   /// Zene törlése a telefonról
   Future<bool> deleteSong(SongModel song) async {
     try {
-      final uri = song.uri;
-      if (uri != null) {
-        final file = File(uri);
+      // Ha ez a zene szól éppen, állítsuk meg a lejátszót
+      if (_currentPlayingSongId == song.id) {
+        await audioPlayer.stop();
+      }
+
+      bool success = false;
+      
+      // 1. Próbáljuk meg a natív MediaStore törlést (Android 10+ esetén ez a biztos)
+      try {
+        final bool? result = await _platform.invokeMethod('deleteSong', {'id': song.id.toString()});
+        success = result ?? false;
+      } catch (e) {
+        debugPrint("Natív törlési hiba: $e");
+      }
+
+      // 2. Ha a natív nem sikerült, próbáljuk meg a direkt fájltörlést (fallback)
+      if (!success) {
+        final path = song.data;
+        final file = File(path);
         if (await file.exists()) {
           await file.delete();
+          success = true;
+        } else {
+          final fileUri = File(song.uri ?? "");
+          if (await fileUri.exists()) {
+            await fileUri.delete();
+            success = true;
+          }
         }
       }
+
+      if (!success) return false;
 
       // Eltávolítás az albumokból
       for (final album in _albums) {
@@ -375,7 +545,7 @@ class MusicProvider extends ChangeNotifier {
       await fetchSongs();
       return true;
     } catch (e) {
-      if (kDebugMode) print("Törlési hiba: $e");
+      debugPrint("Törlési hiba: $e");
       return false;
     }
   }
@@ -485,6 +655,75 @@ class MusicProvider extends ChangeNotifier {
   void _incrementPlayCount(int songId) {
     _playCounts[songId] = (_playCounts[songId] ?? 0) + 1;
     _savePlayCounts();
+  }
+
+  // ================================================================
+  // METAADAT SZERKESZTÉS
+  // ================================================================
+
+  void setSongTitle(int songId, String title) {
+    if (title.trim().isEmpty) {
+      _titleOverrides.remove(songId);
+    } else {
+      _titleOverrides[songId] = title.trim();
+    }
+    _saveTitleOverrides();
+    notifyListeners();
+  }
+
+  void setSongArtist(int songId, String artist) {
+    if (artist.trim().isEmpty) {
+      _artistOverrides.remove(songId);
+    } else {
+      _artistOverrides[songId] = artist.trim();
+    }
+    _saveArtistOverrides();
+    notifyListeners();
+  }
+
+  // ================================================================
+  // CÍMKÉK
+  // ================================================================
+
+  void addTagToSong(int songId, String tag) {
+    final t = tag.trim().toLowerCase();
+    if (t.isEmpty) return;
+    _songTags.putIfAbsent(songId, () => []);
+    if (!_songTags[songId]!.contains(t)) {
+      _songTags[songId]!.add(t);
+      _saveSongTags();
+      notifyListeners();
+    }
+  }
+
+  void removeTagFromSong(int songId, String tag) {
+    _songTags[songId]?.remove(tag);
+    if (_songTags[songId]?.isEmpty ?? false) _songTags.remove(songId);
+    _saveSongTags();
+    notifyListeners();
+  }
+
+  void togglePinTag(String tag) {
+    if (_pinnedTags.contains(tag)) {
+      _pinnedTags.remove(tag);
+    } else {
+      _pinnedTags.add(tag);
+    }
+    _savePinnedTags();
+    notifyListeners();
+  }
+
+  void unpinTag(String tag) {
+    _pinnedTags.remove(tag);
+    _savePinnedTags();
+    notifyListeners();
+  }
+
+  /// Címkével rendelkező zenék szűrése
+  List<SongModel> songsWithTag(String tag) {
+    return _songs.where((s) {
+      return !_archivedSongIds.contains(s.id) && (_songTags[s.id]?.contains(tag) ?? false);
+    }).toList();
   }
 
   // ================================================================
@@ -636,17 +875,55 @@ class MusicProvider extends ChangeNotifier {
   }
 
   void nextSong() {
-    if (audioPlayer.hasNext) {
-      audioPlayer.seekToNext();
-    } else {
-      if (!_isShuffleModeEnabled) {
+    if (_isShuffleModeEnabled) {
+      if (audioPlayer.hasNext) {
+        audioPlayer.seekToNext();
+      } else {
         audioPlayer.seek(Duration.zero, index: 0);
         audioPlayer.play();
       }
+      return;
+    }
+
+    final displayed = displayedSongs;
+    if (displayed.isEmpty) return;
+
+    if (_currentPlayingSongId != null) {
+      int currentIdx = displayed.indexWhere((s) => s.id == _currentPlayingSongId);
+      if (currentIdx != -1) {
+        int nextIdx = (currentIdx + 1) % displayed.length;
+        playSong(nextIdx);
+        return;
+      }
+    }
+
+    if (audioPlayer.hasNext) {
+      audioPlayer.seekToNext();
+    } else {
+      audioPlayer.seek(Duration.zero, index: 0);
+      audioPlayer.play();
     }
   }
 
   void previousSong() {
+    if (audioPlayer.position > const Duration(seconds: 3)) {
+      audioPlayer.seek(Duration.zero);
+      return;
+    }
+
+    final displayed = displayedSongs;
+    if (displayed.isEmpty) return;
+
+    if (_currentPlayingSongId != null) {
+      int currentIdx = displayed.indexWhere((s) => s.id == _currentPlayingSongId);
+      if (currentIdx != -1) {
+        int prevIdx = currentIdx - 1;
+        if (prevIdx < 0) prevIdx = displayed.length - 1;
+        playSong(prevIdx);
+        return;
+      }
+    }
+
     if (audioPlayer.hasPrevious) {
       audioPlayer.seekToPrevious();
     } else {
@@ -680,6 +957,132 @@ class MusicProvider extends ChangeNotifier {
         break;
     }
     await audioPlayer.setLoopMode(nextMode);
+  }
+
+  void setSpeed(double speed) {
+    _playbackSpeed = speed;
+    audioPlayer.setSpeed(speed);
+    notifyListeners();
+  }
+
+  void setPitch(double pitch) {
+    _playbackPitch = pitch;
+    audioPlayer.setPitch(pitch);
+    notifyListeners();
+  }
+
+  void toggleReplayGain() {
+    _isReplayGainEnabled = !_isReplayGainEnabled;
+    prefs.setBool('music_replay_gain', _isReplayGainEnabled);
+    _applyReplayGain();
+    notifyListeners();
+  }
+
+  void _applyReplayGain() {
+    // Egyszerűsített ReplayGain: ha be van kapcsolva, egy alap hangerő-korrekciót alkalmazunk
+    // Valódi ReplayGainhez fájl-elemzés kellene, de ez a "Normalizálás" segít a halkabb daloknál
+    if (_isReplayGainEnabled) {
+      audioPlayer.setVolume(0.85); // Pici tartalék a clipping ellen
+    } else {
+      audioPlayer.setVolume(1.0);
+    }
+  }
+
+  void toggleCrossfade() {
+    _isCrossfadeEnabled = !_isCrossfadeEnabled;
+    prefs.setBool('crossfade_enabled', _isCrossfadeEnabled);
+    notifyListeners();
+  }
+
+  void setEqualizerGain(int index, double gain) {
+    if (index >= 0 && index < _equalizerGains.length) {
+      _equalizerGains[index] = gain;
+      _saveEqualizerGains();
+      notifyListeners();
+      _applyEqualizerGain(index, gain);
+    }
+  }
+
+  void resetEqualizer() {
+    for (int i = 0; i < _equalizerGains.length; i++) {
+      _equalizerGains[i] = 0.0;
+      _applyEqualizerGain(i, 0.0);
+    }
+    _saveEqualizerGains();
+    notifyListeners();
+  }
+
+  void setLoudnessEnhancer(bool enabled) {
+    _isLoudnessEnhancerEnabled = enabled;
+    prefs.setBool('music_loudness_enhancer', enabled);
+    notifyListeners();
+    _applyLoudnessEnhancer();
+  }
+
+  Future<void> _applyLoudnessEnhancer() async {
+    if (Platform.isAndroid) {
+      try {
+        await _loudnessEnhancer.setEnabled(_isLoudnessEnhancerEnabled);
+        if (_isLoudnessEnhancerEnabled) {
+          await _loudnessEnhancer.setTargetGain(0.5); // kb 500mB erősítés, tisztább hang
+        }
+      } catch (e) {
+        if (kDebugMode) print("LoudnessEnhancer hiba: $e");
+      }
+    }
+  }
+
+  void setBassBoostLevel(double level) {
+    _bassBoostLevel = level;
+    prefs.setDouble('music_bass_boost', level);
+    notifyListeners();
+    // Újraalkalmazzuk a legalsó két sávot
+    _applyEqualizerGain(0, _equalizerGains[0]);
+    _applyEqualizerGain(1, _equalizerGains[1]);
+  }
+
+  Future<void> _applyEqualizerGain(int index, double gain) async {
+    if (Platform.isAndroid) {
+      try {
+        if (!_equalizerEnabled) {
+          await _equalizer.setEnabled(true);
+          _equalizerEnabled = true;
+        }
+        final params = await _equalizer.parameters;
+        if (index < params.bands.length) {
+          // Eltávolítottuk az 1.5x szorzót a pontosabb és tisztább szabályozás érdekében, így nem torzít
+          double targetGain = gain; 
+
+          // Finomított basszus rásegítés, hogy ne okozzon clippinget (torzítást)
+          if (index == 0) targetGain += (_bassBoostLevel * 6.0); // max +6dB
+          if (index == 1) targetGain += (_bassBoostLevel * 3.0); // max +3dB
+
+          // Szigorú korlátozás a hardveres határok közé
+          if (targetGain < params.minDecibels) targetGain = params.minDecibels;
+          if (targetGain > params.maxDecibels) targetGain = params.maxDecibels;
+          
+          await params.bands[index].setGain(targetGain);
+        }
+      } catch (e) {
+        if (kDebugMode) print("EQ hiba: $e");
+      }
+    }
+  }
+
+  void setCrossfadeDuration(int seconds) {
+    _crossfadeDuration = Duration(seconds: seconds);
+    notifyListeners();
+  }
+
+  void setListSwipeAction(bool isRight, String action) {
+    if (isRight) {
+      _listSwipeRightAction = action;
+      prefs.setString('list_swipe_right', action);
+    } else {
+      _listSwipeLeftAction = action;
+      prefs.setString('list_swipe_left', action);
+    }
+    notifyListeners();
   }
 
   // ============================================================

@@ -6,9 +6,11 @@
   <component name="ChangeListManager">
     <list default="true" id="5860345b-167e-4517-bbcc-3442be533fd8" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/radiont/android/app/src/main/kotlin/com/example/radiont/MainActivity.kt" beforeDir="false" afterPath="$PROJECT_DIR$/radiont/android/app/src/main/kotlin/com/example/radiont/MainActivity.kt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/radiont/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/radiont/lib/main.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/radiont/lib/providers/music_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/radiont/lib/providers/music_provider.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/radiont/lib/screens/music_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/radiont/lib/screens/music_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/radiont/lib/screens/song_context_menu.dart" beforeDir="false" afterPath="$PROJECT_DIR$/radiont/lib/screens/song_context_menu.dart" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

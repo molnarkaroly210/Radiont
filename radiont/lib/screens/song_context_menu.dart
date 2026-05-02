@@ -43,7 +43,7 @@ void showSongContextMenu(BuildContext context, SongModel song) {
             // Albumhoz adás
             _MenuItem(icon: Icons.playlist_add_rounded, label: "Hozzáadás albumhoz", onTap: () {
               Navigator.pop(ctx);
-              _showAlbumPicker(context, song, mp);
+              showAlbumPicker(context, song, mp);
             }),
             // Következő lejátszása
             _MenuItem(icon: Icons.skip_next_rounded, label: "Következő lejátszása", onTap: () {
@@ -79,15 +79,26 @@ void showSongContextMenu(BuildContext context, SongModel song) {
                 mp.removeSongFromAlbum(mp.selectedAlbumId!, song.id);
                 Navigator.pop(ctx);
               }),
-            // Törlés
-            _MenuItem(icon: Icons.delete_outline_rounded, label: "Törlés a telefonról", color: Colors.red.shade300, onTap: () {
+            // Törlés (Csak ha a Radiont mappában van)
+            if (song.data.contains('Radiont'))
+              _MenuItem(icon: Icons.delete_outline_rounded, label: "Törlés a telefonról", color: Colors.red.shade300, onTap: () {
+                Navigator.pop(ctx);
+                confirmDelete(context, song, mp);
+              }),
+            // Szerkesztés
+            _MenuItem(icon: Icons.edit_rounded, label: "Szerkesztés", onTap: () {
               Navigator.pop(ctx);
-              _confirmDelete(context, song, mp);
+              showEditDialog(context, song, mp);
+            }),
+            // Címkék
+            _MenuItem(icon: Icons.label_outline_rounded, label: "Címkék", onTap: () {
+              Navigator.pop(ctx);
+              showTagEditor(context, song, mp);
             }),
             // Részletek
             _MenuItem(icon: Icons.info_outline_rounded, label: "Részletek", onTap: () {
               Navigator.pop(ctx);
-              _showDetails(context, song, mp);
+              showDetails(context, song, mp);
             }),
           ]),
         ),
@@ -110,17 +121,27 @@ class _MenuItem extends StatelessWidget {
   }
 }
 
-void _showAlbumPicker(BuildContext context, SongModel song, MusicProvider mp) {
+void showAlbumPicker(BuildContext context, SongModel song, MusicProvider mp) {
   final theme = Theme.of(context);
   showModalBottomSheet(
     context: context, backgroundColor: Colors.transparent, isScrollControlled: true,
+    showDragHandle: true,
     builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
       return Container(
-        margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16), padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(color: theme.colorScheme.surface.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(28), border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3))),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text("Hozzáadás albumhoz", style: theme.textTheme.titleLarge),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Hozzáadás albumhoz", style: theme.textTheme.titleLarge),
+              IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           if (mp.albums.isEmpty)
             Padding(padding: const EdgeInsets.all(20), child: Text("Nincs album. Hozz létre egyet!", style: theme.textTheme.bodyMedium)),
@@ -157,10 +178,16 @@ void showCreateAlbumDialog(BuildContext context, MusicProvider mp) {
   final theme = Theme.of(context);
   final controller = TextEditingController();
   double hue = 200;
-  showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
     final color = HSVColor.fromAHSV(1, hue, 0.7, 0.9).toColor();
     return AlertDialog(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: Color.alphaBlend(
+        theme.colorScheme.surface.withValues(alpha: 0.97),
+        Colors.black,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: const Text("Új album"),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -193,14 +220,20 @@ void showCreateAlbumDialog(BuildContext context, MusicProvider mp) {
   }));
 }
 
-void _confirmDelete(BuildContext context, SongModel song, MusicProvider mp) {
-  showDialog(context: context, builder: (ctx) => AlertDialog(
-    title: const Text("Zene törlése"),
-    content: Text("Biztosan törölni akarod?\n\n${song.title}\n\nEz a fájl véglegesen törlődik a telefonról!"),
-    actions: [
-      TextButton(child: const Text("Mégse"), onPressed: () => Navigator.pop(ctx)),
-      ElevatedButton(
-        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+void confirmDelete(BuildContext context, SongModel song, MusicProvider mp) {
+  final theme = Theme.of(context);
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Color.alphaBlend(theme.colorScheme.surface.withValues(alpha: 0.95), Colors.black),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text("Zene törlése"),
+      content: Text("Biztosan törölni akarod?\n\n${song.title}\n\nEz a fájl véglegesen törlődik a telefonról!"),
+      actions: [
+        TextButton(child: const Text("Mégse"), onPressed: () => Navigator.pop(ctx)),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
         child: const Text("Törlés"),
         onPressed: () async {
           Navigator.pop(ctx);
@@ -217,12 +250,17 @@ void _confirmDelete(BuildContext context, SongModel song, MusicProvider mp) {
   ));
 }
 
-void _showDetails(BuildContext context, SongModel song, MusicProvider mp) {
+void showDetails(BuildContext context, SongModel song, MusicProvider mp) {
+  final theme = Theme.of(context);
   final dur = Duration(milliseconds: song.duration ?? 0);
   final mins = dur.inMinutes; final secs = dur.inSeconds % 60;
-  showDialog(context: context, builder: (ctx) => AlertDialog(
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-    title: const Text("Részletek"),
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Color.alphaBlend(theme.colorScheme.surface.withValues(alpha: 0.95), Colors.black),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text("Részletek"),
     content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       _DetailRow("Cím", song.title),
       _DetailRow("Előadó", song.artist ?? "Ismeretlen"),
@@ -244,5 +282,158 @@ class _DetailRow extends StatelessWidget {
       SizedBox(width: 90, child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold))),
       Expanded(child: Text(value, maxLines: 2, overflow: TextOverflow.ellipsis)),
     ]),
+  );
+}
+
+/// Cím és előadó szerkesztése
+void showEditDialog(BuildContext context, SongModel song, MusicProvider mp) {
+  final theme = Theme.of(context);
+  final titleCtrl = TextEditingController(text: mp.getSongTitle(song));
+  final artistCtrl = TextEditingController(text: mp.getSongArtist(song));
+  showDialog(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: Color.alphaBlend(theme.colorScheme.surface.withValues(alpha: 0.97), Colors.black),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text("Szerkesztés"),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: titleCtrl, decoration: InputDecoration(
+          labelText: "Cím", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+        const SizedBox(height: 14),
+        TextField(controller: artistCtrl, decoration: InputDecoration(
+          labelText: "Előadó", border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+      ]),
+      actions: [
+        TextButton(child: const Text("Mégse"), onPressed: () => Navigator.pop(ctx)),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: theme.primaryColor,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text("Mentés"),
+          onPressed: () {
+            mp.setSongTitle(song.id, titleCtrl.text);
+            mp.setSongArtist(song.id, artistCtrl.text);
+            Navigator.pop(ctx);
+          }),
+      ],
+    ),
+  );
+}
+
+/// Címke szerkesztő
+void showTagEditor(BuildContext context, SongModel song, MusicProvider mp) {
+  final theme = Theme.of(context);
+  final tagCtrl = TextEditingController();
+  showModalBottomSheet(
+    context: context, backgroundColor: Colors.transparent, isScrollControlled: true,
+    showDragHandle: true,
+    builder: (bCtx) => StatefulBuilder(builder: (bCtx, setSt) {
+      final tags = mp.getSongTags(song.id);
+      final allTags = mp.allTags.difference(tags.toSet());
+      return Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(bCtx).viewInsets.bottom),
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16), padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(theme.colorScheme.surface.withValues(alpha: 0.97), Colors.black),
+            borderRadius: BorderRadius.circular(28)),
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Címkék", style: theme.textTheme.titleLarge),
+              IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(bCtx),
+              ),
+            ],
+          ),
+          Text(mp.getSongTitle(song), style: theme.textTheme.bodySmall),
+          const SizedBox(height: 16),
+          // Jelenlegi címkék
+          if (tags.isNotEmpty) Wrap(spacing: 6, runSpacing: 6, children: tags.map((t) {
+            final pinned = mp.pinnedTags.contains(t);
+            return InputChip(
+              label: Text(t),
+              avatar: Icon(pinned ? Icons.push_pin : Icons.label, size: 16, color: theme.primaryColor),
+              deleteIcon: const Icon(Icons.close, size: 16),
+              onDeleted: () { mp.removeTagFromSong(song.id, t); setSt(() {}); },
+              onPressed: () { mp.togglePinTag(t); setSt(() {}); },
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            );
+          }).toList()),
+          if (tags.isNotEmpty) const SizedBox(height: 12),
+          // Új címke hozzáadása
+          Row(children: [
+            Expanded(child: TextField(
+              controller: tagCtrl,
+              onChanged: (_) => setSt(() {}),
+              decoration: InputDecoration(
+                hintText: "Új címke...", isDense: true,
+                prefixIcon: Icon(Icons.label_outline, size: 18, color: theme.primaryColor),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)))),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.add_circle, color: theme.primaryColor, size: 28),
+              onPressed: () {
+                if (tagCtrl.text.trim().isNotEmpty) {
+                  mp.addTagToSong(song.id, tagCtrl.text);
+                  tagCtrl.clear();
+                  setSt(() {});
+                }
+              }),
+          ]),
+          // Javaslatok gépelés közben
+          Builder(builder: (_) {
+            final input = tagCtrl.text.trim().toLowerCase();
+            // Ha gépel, szűrt javaslatok
+            final suggestions = input.isNotEmpty
+              ? allTags.where((t) => t.contains(input)).toList()
+              : allTags.toList();
+            if (suggestions.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(input.isNotEmpty ? "Javaslatok:" : "Meglévő címkék:", style: theme.textTheme.bodySmall),
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, runSpacing: 6, children: suggestions.map((t) {
+                  // Kiemeljük a gépelt részt
+                  return ActionChip(
+                    label: Text(t, style: TextStyle(fontSize: 12,
+                      fontWeight: input.isNotEmpty && t.startsWith(input) ? FontWeight.bold : FontWeight.normal)),
+                    avatar: const Icon(Icons.add, size: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    onPressed: () {
+                      mp.addTagToSong(song.id, t);
+                      tagCtrl.clear();
+                      setSt(() {});
+                    },
+                  );
+                }).toList()),
+              ]),
+            );
+          }),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              onPressed: () => Navigator.pop(bCtx),
+              child: const Text("Kész", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ])),
+        ),
+      );
+    }),
   );
 }

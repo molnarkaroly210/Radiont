@@ -1,4 +1,4 @@
- import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
@@ -8,9 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:simple_animations/simple_animations.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:volume_controller/volume_controller.dart';
@@ -22,6 +20,8 @@ import 'providers/music_provider.dart';
 import 'screens/music_screen.dart';
 import 'screens/download_webview_screen.dart';
 import 'services/dns_service.dart';
+import 'providers/theme_provider.dart';
+import 'widgets/pressable_scale_widget.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 const Duration kAppAnimationDuration = Duration(milliseconds: 500);
@@ -30,113 +30,6 @@ const Duration kAppAnimationDuration = Duration(milliseconds: 500);
 // PROVIDEREK
 // =================================================================
 
-class ThemeProvider extends ChangeNotifier {
-  final SharedPreferences prefs;
-  ThemeMode _themeMode = ThemeMode.system;
-  Color _selectedColor = const Color(0xFF00FFFF);
-  bool _isAlwaysOn = false;
-  bool _isFullScreen = false;
-  bool _backgroundPlayback = false;
-  bool _playButtonBlack = false;
-  String _dnsProvider = DnsService.adguardDefault;
-
-  ThemeMode get themeMode => _themeMode;
-  Color get selectedColor => _selectedColor;
-  bool get isAlwaysOn => _isAlwaysOn;
-  bool get isFullScreen => _isFullScreen;
-  bool get backgroundPlayback => _backgroundPlayback;
-  bool get playButtonBlack => _playButtonBlack;
-  String get dnsProvider => _dnsProvider;
-
-  ThemeProvider(this.prefs) { _loadSettings(); }
-
-  void _loadSettings() {
-    _themeMode = ThemeMode.values.firstWhere((e) => e.toString() == 'ThemeMode.${prefs.getString('themeMode') ?? 'system'}', orElse: () => ThemeMode.system);
-    _selectedColor = Color(prefs.getInt('themeColor') ?? const Color(0xFF00FFFF).toARGB32());
-    _isAlwaysOn = prefs.getBool('isAlwaysOn') ?? false;
-    WakelockPlus.toggle(enable: _isAlwaysOn);
-    _isFullScreen = prefs.getBool('isFullScreen') ?? false;
-    _backgroundPlayback = prefs.getBool('backgroundPlayback') ?? false;
-    _playButtonBlack = prefs.getBool('playButtonBlack') ?? false;
-    _dnsProvider = prefs.getString('dnsProvider') ?? DnsService.adguardDefault;
-    DnsService.setProvider(_dnsProvider);
-    _applyFullScreen();
-    notifyListeners();
-  }
-
-  void _applyFullScreen() {
-    if (_isFullScreen) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
-  }
-
-  Future<void> setThemeMode(ThemeMode mode) async { _themeMode = mode; await prefs.setString('themeMode', mode.name); notifyListeners(); }
-  Future<void> setThemeColor(Color color) async { _selectedColor = color; await prefs.setInt('themeColor', color.value); notifyListeners(); }
-  Future<void> setAlwaysOn(bool value) async { _isAlwaysOn = value; WakelockPlus.toggle(enable: _isAlwaysOn); await prefs.setBool('isAlwaysOn', value); notifyListeners(); }
-  Future<void> setFullScreen(bool value) async { _isFullScreen = value; _applyFullScreen(); await prefs.setBool('isFullScreen', value); notifyListeners(); }
-
-  Future<void> setBackgroundPlayback(bool value) async {
-    _backgroundPlayback = value;
-    await prefs.setBool('backgroundPlayback', value);
-    notifyListeners();
-  }
-
-  Future<void> setPlayButtonBlack(bool value) async { _playButtonBlack = value; await prefs.setBool('playButtonBlack', value); notifyListeners(); }
-
-  Future<void> setDnsProvider(String dohUrl) async {
-    _dnsProvider = dohUrl;
-    DnsService.setProvider(dohUrl);
-    await prefs.setString('dnsProvider', dohUrl);
-    notifyListeners();
-  }
-
-  ThemeData getDarkTheme() => _createThemeData(Brightness.dark);
-  ThemeData getLightTheme() => _createThemeData(Brightness.light);
-
-  ThemeData _createThemeData(Brightness brightness) {
-    final isDark = brightness == Brightness.dark;
-    final primary = _selectedColor;
-    final scaffoldBg = isDark ? const Color(0xFF050816) : const Color(0xFFF8F9FA);
-    final surfaceColor = isDark ? const Color(0xFF1C1C2E).withValues(alpha: 0.5) : Colors.white;
-    final onBgColor = isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87;
-    final headlineColor = isDark ? Colors.white : Colors.black;
-
-    final baseTheme = ThemeData(
-      brightness: brightness,
-      scaffoldBackgroundColor: scaffoldBg,
-      primaryColor: primary,
-      textTheme: GoogleFonts.poppinsTextTheme(
-        TextTheme(
-            headlineMedium: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1, fontSize: 24, color: headlineColor),
-            titleLarge: TextStyle(fontWeight: FontWeight.bold, color: headlineColor),
-            titleMedium: TextStyle(fontWeight: FontWeight.w600, color: onBgColor),
-            bodyMedium: TextStyle(color: onBgColor.withValues(alpha: 0.8), fontSize: 14),
-            labelLarge: const TextStyle(fontWeight: FontWeight.bold)
-        ),
-      ),
-      appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0, centerTitle: true),
-    );
-
-    return baseTheme.copyWith(
-        colorScheme: ColorScheme(
-            brightness: brightness,
-            primary: primary,
-            onPrimary: isDark ? Colors.black : Colors.white,
-            secondary: primary,
-            onSecondary: isDark ? Colors.black : Colors.white,
-            error: Colors.redAccent.shade100,
-            onError: Colors.black,
-            surface: surfaceColor,
-            onSurface: onBgColor,
-            surfaceContainerHighest: isDark ? const Color(0xFF333850) : const Color(0xFFE8EAF0)
-        ),
-        iconTheme: IconThemeData(color: primary, size: 26),
-        sliderTheme: const SliderThemeData(trackHeight: 4, thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7), overlayShape: RoundSliderOverlayShape(overlayRadius: 18))
-    );
-  }
-}
 
 class RadioProvider extends ChangeNotifier {
   final SharedPreferences prefs;
@@ -149,12 +42,21 @@ class RadioProvider extends ChangeNotifier {
   bool _isLoading = true;
   double _systemVolume = 0.5;
   int? _lastProcessedIndex;
+  bool _volumeControllerAvailable = false;
 
   bool get isLoading => _isLoading;
   List<RadioStation> get stations => _stations;
-  List<RadioStation> get favoriteStations => _stations.where((s) => s.isFavorite).toList();
-  List<RadioStation> get activeStations => _swipeOnlyFavorites ? favoriteStations : _stations;
-  RadioStation get currentStation => activeStations.isEmpty ? RadioStation(id: '', name: 'Nincs állomás', streamUrl: '', imageUrl: 'assets/images/default_radio.png') : activeStations[_currentIndex];
+  List<RadioStation> get favoriteStations =>
+      _stations.where((s) => s.isFavorite).toList();
+  List<RadioStation> get activeStations =>
+      _swipeOnlyFavorites ? favoriteStations : _stations;
+  RadioStation get currentStation => activeStations.isEmpty
+      ? RadioStation(
+          id: '',
+          name: 'Nincs állomás',
+          streamUrl: '',
+          imageUrl: 'assets/images/default_radio.png')
+      : activeStations[_currentIndex];
   int get currentIndex => _currentIndex;
   bool get swipeOnlyFavorites => _swipeOnlyFavorites;
   AudioPlayer get audioPlayer => _audioPlayer;
@@ -166,33 +68,50 @@ class RadioProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    VolumeController().listener((volume) {
-      _systemVolume = volume;
-      notifyListeners();
-    });
+    _initVolumeController();
 
     // Figyeli a lejátszási lista indexének változását (pl. értesítési sáv gombnyomásra)
     _audioPlayer.currentIndexStream.listen((index) {
-        if (index != null && index != _lastProcessedIndex) {
-            _lastProcessedIndex = index; // Megakadályozza a többszöri feldolgozást
-            // A pageController-t a lejátszási lista aktuális indexéhez igazítjuk.
-            // A setStationByIndex-t a pageController onPageChanged eseménye fogja meghívni.
-            if (pageController.hasClients) {
-              pageController.animateToPage(
-                  index,
-                  duration: const Duration(milliseconds: 400),
-                  curve: Curves.easeOut,
-              );
-            }
+      if (index != null && index != _lastProcessedIndex) {
+        _lastProcessedIndex = index; // Megakadályozza a többszöri feldolgozást
+        // A pageController-t a lejátszási lista aktuális indexéhez igazítjuk.
+        // A setStationByIndex-t a pageController onPageChanged eseménye fogja meghívni.
+        if (pageController.hasClients) {
+          pageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOut,
+          );
         }
+      }
     });
+  }
+
+  Future<void> _initVolumeController() async {
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        _systemVolume = await VolumeController().getVolume();
+        VolumeController().listener((volume) {
+          _systemVolume = volume;
+          notifyListeners();
+        });
+        _volumeControllerAvailable = true;
+      }
+    } catch (e) {
+      debugPrint(
+          "VolumeController inicializálási hiba (valószínűleg teljes újrafordítás kell): $e");
+    }
   }
 
   @override
   void dispose() {
     _audioPlayer.dispose();
     pageController.dispose();
-    VolumeController().removeListener();
+    if (_volumeControllerAvailable) {
+      try {
+        VolumeController().removeListener();
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -221,11 +140,13 @@ class RadioProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String stationId) async {
-    final station = _stations.firstWhere((s) => s.id == stationId, orElse: () => currentStation);
-    if(station.id.isEmpty) return;
+    final station = _stations.firstWhere((s) => s.id == stationId,
+        orElse: () => currentStation);
+    if (station.id.isEmpty) return;
 
     station.isFavorite = !station.isFavorite;
-    final favoriteIds = _stations.where((s) => s.isFavorite).map((s) => s.id).toList();
+    final favoriteIds =
+        _stations.where((s) => s.isFavorite).map((s) => s.id).toList();
     await prefs.setStringList('favoriteStations', favoriteIds);
 
     if (_swipeOnlyFavorites) {
@@ -248,55 +169,57 @@ class RadioProvider extends ChangeNotifier {
     final stationToPlay = activeStations[_currentIndex];
 
     try {
-      if (stationToPlay.streamUrl.isNotEmpty && _audioPlayer.currentIndex != index) {
-          // A háttérlejátszó a teljes lejátszási lista indexét használja
-          await _audioPlayer.seek(Duration.zero, index: index);
+      if (stationToPlay.streamUrl.isNotEmpty &&
+          _audioPlayer.currentIndex != index) {
+        // A háttérlejátszó a teljes lejátszási lista indexét használja
+        await _audioPlayer.seek(Duration.zero, index: index);
       }
       if (play && !_audioPlayer.playing) {
-          _audioPlayer.play();
+        _audioPlayer.play();
       }
     } catch (e) {
-      print("Állomás beállítási hiba: $e");
+      debugPrint("Állomás beállítási hiba: $e");
     }
     notifyListeners();
   }
 
   // Metódus a lejátszási lista (AudioSource) frissítésére
   Future<void> _updateAudioSource({bool play = true}) async {
-      if (activeStations.isEmpty) {
-          await _audioPlayer.stop();
-          return;
-      }
+    if (activeStations.isEmpty) {
+      await _audioPlayer.stop();
+      return;
+    }
 
-      final audioSources = activeStations.map((station) {
-          return AudioSource.uri(
-              Uri.parse(station.streamUrl),
-              tag: MediaItem(
-                  id: station.id,
-                  album: "Radiont",
-                  title: station.name,
-                  artist: station.nowPlaying,
-                  artUri: Uri.parse(station.imageUrl),
-              ),
-          );
-      }).toList();
+    final audioSources = activeStations.map((station) {
+      return AudioSource.uri(
+        Uri.parse(station.streamUrl),
+        tag: MediaItem(
+          id: station.id,
+          album: "Radiont",
+          title: station.name,
+          artist: station.nowPlaying,
+          artUri: Uri.parse(station.imageUrl),
+        ),
+      );
+    }).toList();
 
-      try {
-          await _audioPlayer.setAudioSource(
-              ConcatenatingAudioSource(children: audioSources),
-              initialIndex: _currentIndex,
-              initialPosition: Duration.zero,
-          );
-          if (play) {
-              _audioPlayer.play();
-          }
-      } catch (e) {
-          print("Hiba az audio forrás beállításakor: $e");
+    try {
+      await _audioPlayer.setAudioSource(
+        ConcatenatingAudioSource(children: audioSources),
+        initialIndex: _currentIndex,
+        initialPosition: Duration.zero,
+      );
+      if (play) {
+        _audioPlayer.play();
       }
+    } catch (e) {
+      debugPrint("Hiba az audio forrás beállításakor: $e");
+    }
   }
 
   Future<void> setSwipeOnlyFavorites(bool value) async {
-    final String oldStationId = activeStations.isNotEmpty ? currentStation.id : '';
+    final String oldStationId =
+        activeStations.isNotEmpty ? currentStation.id : '';
 
     _swipeOnlyFavorites = value;
     await prefs.setBool('swipeOnlyFavorites', value);
@@ -328,13 +251,18 @@ class RadioProvider extends ChangeNotifier {
   void nextStation() {
     if (activeStations.length < 2) return;
     int nextIndex = (_currentIndex + 1) % activeStations.length;
-    pageController.animateToPage(nextIndex, duration: const Duration(milliseconds: 500), curve: Curves.easeOutCubic);
+    pageController.animateToPage(nextIndex,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic);
   }
 
   void previousStation() {
     if (activeStations.length < 2) return;
-    int prevIndex = (_currentIndex - 1 + activeStations.length) % activeStations.length;
-    pageController.animateToPage(prevIndex, duration: const Duration(milliseconds: 500), curve: Curves.easeOutCubic);
+    int prevIndex =
+        (_currentIndex - 1 + activeStations.length) % activeStations.length;
+    pageController.animateToPage(prevIndex,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic);
   }
 
   void togglePlayPause() {
@@ -343,7 +271,8 @@ class RadioProvider extends ChangeNotifier {
     } else {
       if (_audioPlayer.processingState == ProcessingState.ready) {
         _audioPlayer.play();
-      } else if(_audioPlayer.processingState == ProcessingState.idle || _audioPlayer.processingState == ProcessingState.completed){
+      } else if (_audioPlayer.processingState == ProcessingState.idle ||
+          _audioPlayer.processingState == ProcessingState.completed) {
         // Ha a lejátszó leállt, újra beállítjuk az aktuális állomást a lejátszási listában
         setStationByIndex(_currentIndex);
       }
@@ -352,11 +281,14 @@ class RadioProvider extends ChangeNotifier {
 
   void setSystemVolume(double volume) {
     _systemVolume = volume;
-    VolumeController().setVolume(volume);
+    if (_volumeControllerAvailable) {
+      try {
+        VolumeController().setVolume(volume);
+      } catch (_) {}
+    }
     notifyListeners();
   }
 }
-
 
 // =================================================================
 // ALKALMAZÁS BELÉPÉSI PONTJA
@@ -401,7 +333,6 @@ Future<void> main() async {
     ),
   );
 }
-
 
 class RadiontApp extends StatelessWidget {
   const RadiontApp({super.key});
@@ -450,10 +381,15 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _updateTime();
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
+    _timer =
+        Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
   }
 
-  void _updateTime() { if (mounted) setState(() => _currentTime = DateFormat('HH:mm').format(DateTime.now())); }
+  void _updateTime() {
+    if (mounted) {
+      setState(() => _currentTime = DateFormat('HH:mm').format(DateTime.now()));
+    }
+  }
 
   @override
   void dispose() {
@@ -465,8 +401,7 @@ class _MainScreenState extends State<MainScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => const FavoritesSheet()
-  );
+      builder: (_) => const FavoritesSheet());
 
   @override
   Widget build(BuildContext context) {
@@ -484,29 +419,29 @@ class _MainScreenState extends State<MainScreen> {
             Selector<RadioProvider, String>(
               selector: (_, provider) => provider.currentStation.imageUrl,
               builder: (context, imageUrl, child) {
-                if (radioProvider.isLoading || radioProvider.stations.isEmpty || imageUrl.isEmpty) return const SizedBox.shrink();
+                if (radioProvider.isLoading ||
+                    radioProvider.stations.isEmpty ||
+                    imageUrl.isEmpty) {
+                  return const SizedBox.shrink();
+                }
                 return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 800),
-                  transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
-                  child: Container(
-                    key: ValueKey<String>(imageUrl),
-                    decoration: BoxDecoration(
-                      image: DecorationImage(
-                        image: NetworkImage(imageUrl),
-                        fit: BoxFit.cover
-                      )
-                    ),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                      child: Container(
-                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: isDark ? 0.6 : 0.2)
-                      )
-                    )
-                  )
-                );
+                    duration: const Duration(milliseconds: 800),
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: Container(
+                        key: ValueKey<String>(imageUrl),
+                        decoration: BoxDecoration(
+                            image: DecorationImage(
+                                image: NetworkImage(imageUrl),
+                                fit: BoxFit.cover)),
+                        child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                            child: Container(
+                                color: (isDark ? Colors.black : Colors.white)
+                                    .withValues(alpha: isDark ? 0.6 : 0.2)))));
               },
             ),
-          
+
           // Zene Háttérkép
           if (_isMusicMode)
             Selector<MusicProvider, int?>(
@@ -515,7 +450,8 @@ class _MainScreenState extends State<MainScreen> {
                 if (songId == null) return const SizedBox.shrink();
                 return AnimatedSwitcher(
                   duration: const Duration(milliseconds: 1000),
-                  transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                  transitionBuilder: (child, animation) =>
+                      FadeTransition(opacity: animation, child: child),
                   child: Stack(
                     key: ValueKey<int>(songId),
                     fit: StackFit.expand,
@@ -525,12 +461,14 @@ class _MainScreenState extends State<MainScreen> {
                         type: ArtworkType.AUDIO,
                         artworkFit: BoxFit.cover,
                         nullArtworkWidget: Container(color: Colors.transparent),
-                        keepOldArtwork: true, // Megtartja a régit amíg az új töltődik
+                        keepOldArtwork:
+                            true, // Megtartja a régit amíg az új töltődik
                       ),
                       BackdropFilter(
                         filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
                         child: Container(
-                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: isDark ? 0.7 : 0.3),
+                          color: (isDark ? Colors.black : Colors.white)
+                              .withValues(alpha: isDark ? 0.7 : 0.3),
                         ),
                       ),
                     ],
@@ -544,102 +482,120 @@ class _MainScreenState extends State<MainScreen> {
             top: !themeProvider.isFullScreen,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 400),
-              transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: ScaleTransition(scale: animation, child: child)),
+              transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(scale: animation, child: child)),
               child: radioProvider.isLoading
                   ? Center(
-                key: const ValueKey('loader'),
-                child: LoadingAnimationWidget.staggeredDotsWave(
-                  color: themeProvider.selectedColor,
-                  size: 60,
-                ),
-              )
-                  : Column(
-                key: const ValueKey('content'),
-                children: [
-                  if (themeProvider.isFullScreen) const SizedBox(height: 10),
-                  TopBar(
-                    currentTime: _currentTime,
-                    isMusicMode: _isMusicMode,
-                    onToggleMode: _toggleMode,
-                    onDownload: () async {
-                      await Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadWebViewScreen()));
-                      // WebView-ból visszatérés után frissítjük a zenélistát
-                      if (mounted) {
-                        context.read<MusicProvider>().fetchSongs();
-                      }
-                    },
-                  ),
-                  Expanded(
-                    child: _isMusicMode 
-                        ? const MusicScreen() 
-                        : (stationsToDisplay.isEmpty
-                        ? Center(
-                        child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                            child: Text(
-                                "Nincsenek kedvenceid.\nKapcsold ki a \"Csak a kedvencek lapozása\" opciót a beállításokban, vagy adj hozzá állomásokat a szív ikonnal.",
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.titleMedium
-                            )
-                        )
+                      key: const ValueKey('loader'),
+                      child: LoadingAnimationWidget.staggeredDotsWave(
+                        color: themeProvider.selectedColor,
+                        size: 60,
+                      ),
                     )
-                        : PageView.builder(
-                      controller: radioProvider.pageController,
-                      itemCount: stationsToDisplay.length,
-                      onPageChanged: (index) {
-                        // Itt már nem kell lejátszást indítani, csak az állapotot frissíteni.
-                        // A setStationByIndex kezeli a lejátszó belső állapotának (seek) frissítését.
-                        radioProvider.setStationByIndex(index, play: radioProvider.audioPlayer.playing);
-                      },
-                      itemBuilder: (context, index) {
-                        final station = stationsToDisplay[index];
-                        return AnimatedBuilder(
-                          animation: radioProvider.pageController,
-                          builder: (context, child) {
-                            double value = 1.0;
-                            if (radioProvider.pageController.position.haveDimensions) {
-                              value = (radioProvider.pageController.page ?? 0.0) - index;
-                              value = (1 - (value.abs() * 0.4)).clamp(0.0, 1.0);
+                  : Column(
+                      key: const ValueKey('content'),
+                      children: [
+                        if (themeProvider.isFullScreen)
+                          const SizedBox(height: 10),
+                        TopBar(
+                          currentTime: _currentTime,
+                          isMusicMode: _isMusicMode,
+                          onToggleMode: _toggleMode,
+                          onDownload: () async {
+                            await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const DownloadWebViewScreen()));
+                            // WebView-ból visszatérés után frissítjük a zenélistát
+                            if (context.mounted) {
+                              context.read<MusicProvider>().fetchSongs();
                             }
-                            return Center(
-                                child: Transform.scale(
-                                    scale: value,
-                                    child: Opacity(
-                                        opacity: value * value,
-                                        child: child
-                                    )
-                                )
-                            );
                           },
-                          child: RadioCard(station: station),
-                        );
-                      },
-                    )),
-                  ),
-                  if (!_isMusicMode)
-                    GestureDetector(
-                        onVerticalDragEnd: (details) {
-                          if (details.primaryVelocity != null && details.primaryVelocity! < -500) _showFavoritesSheet();
-                        },
-                        child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                  width: 40,
-                                  height: 5,
-                                  margin: const EdgeInsets.only(bottom: 10),
-                                  decoration: BoxDecoration(
-                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
-                                      borderRadius: BorderRadius.circular(10)
-                                  )
-                              ),
-                              const PlayerControls()
-                            ]
-                        )
+                        ),
+                        Expanded(
+                          child: _isMusicMode
+                              ? const MusicScreen()
+                              : (stationsToDisplay.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 40.0),
+                                          child: Text(
+                                              "Nincsenek kedvenceid.\nKapcsold ki a \"Csak a kedvencek lapozása\" opciót a beállításokban, vagy adj hozzá állomásokat a szív ikonnal.",
+                                              textAlign: TextAlign.center,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium)))
+                                  : PageView.builder(
+                                      controller: radioProvider.pageController,
+                                      itemCount: stationsToDisplay.length,
+                                      onPageChanged: (index) {
+                                        // Itt már nem kell lejátszást indítani, csak az állapotot frissíteni.
+                                        // A setStationByIndex kezeli a lejátszó belső állapotának (seek) frissítését.
+                                        radioProvider.setStationByIndex(index,
+                                            play: radioProvider
+                                                .audioPlayer.playing);
+                                      },
+                                      itemBuilder: (context, index) {
+                                        final station =
+                                            stationsToDisplay[index];
+                                        return AnimatedBuilder(
+                                          animation:
+                                              radioProvider.pageController,
+                                          builder: (context, child) {
+                                            double value = 1.0;
+                                            if (radioProvider.pageController
+                                                .position.haveDimensions) {
+                                              value = (radioProvider
+                                                          .pageController
+                                                          .page ??
+                                                      0.0) -
+                                                  index;
+                                              value = (1 - (value.abs() * 0.4))
+                                                  .clamp(0.0, 1.0);
+                                            }
+                                            return Center(
+                                                child: Transform.scale(
+                                                    scale: value,
+                                                    child: Opacity(
+                                                        opacity: value * value,
+                                                        child: child)));
+                                          },
+                                          child: RadioCard(station: station),
+                                        );
+                                      },
+                                    )),
+                        ),
+                        if (!_isMusicMode)
+                          GestureDetector(
+                              onVerticalDragEnd: (details) {
+                                if (details.primaryVelocity != null &&
+                                    details.primaryVelocity! < -500) {
+                                  _showFavoritesSheet();
+                                }
+                              },
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                        width: 40,
+                                        height: 5,
+                                        margin:
+                                            const EdgeInsets.only(bottom: 10),
+                                        decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.3),
+                                            borderRadius:
+                                                BorderRadius.circular(10))),
+                                    const PlayerControls()
+                                  ])),
+                        const SizedBox(height: 16),
+                      ],
                     ),
-                  const SizedBox(height: 16),
-                ],
-              ),
             ),
           ),
         ],
@@ -652,37 +608,6 @@ class _MainScreenState extends State<MainScreen> {
 // EGYÉB WIDGETEK (Változatlan)
 // =================================================================
 
-class PressableScaleWidget extends StatefulWidget {
-  final Widget child;
-  final VoidCallback? onTap;
-
-  const PressableScaleWidget({super.key, required this.child, this.onTap});
-
-  @override
-  State<PressableScaleWidget> createState() => _PressableScaleWidgetState();
-}
-
-class _PressableScaleWidgetState extends State<PressableScaleWidget> {
-  bool _isPressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) {
-        setState(() => _isPressed = false);
-        widget.onTap?.call();
-      },
-      onTapCancel: () => setState(() => _isPressed = false),
-      child: AnimatedScale(
-        scale: _isPressed ? 0.85 : 1.0,
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
-        child: widget.child,
-      ),
-    );
-  }
-}
 
 class RadioCard extends StatelessWidget {
   final RadioStation station;
@@ -700,26 +625,19 @@ class RadioCard extends StatelessWidget {
             decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(40),
                 image: DecorationImage(
-                    image: NetworkImage(station.imageUrl),
-                    fit: BoxFit.cover
-                ),
+                    image: NetworkImage(station.imageUrl), fit: BoxFit.cover),
                 boxShadow: [
                   BoxShadow(
                       color: theme.primaryColor.withValues(alpha: 0.6),
                       blurRadius: 30,
                       spreadRadius: 0,
-                      offset: const Offset(0, 10)
-                  ),
+                      offset: const Offset(0, 10)),
                   BoxShadow(
                       color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 25,
                       spreadRadius: -5,
-                      offset: const Offset(0, 15)
-                  )
-                ]
-            )
-        )
-    );
+                      offset: const Offset(0, 15))
+                ])));
   }
 }
 
@@ -737,17 +655,17 @@ class PlayerControls extends StatelessWidget {
     final theme = Theme.of(context);
 
     Widget playPauseButton() {
-      final buttonColor = themeProvider.playButtonBlack ? Colors.black : Colors.white;
+      final buttonColor =
+          themeProvider.playButtonBlack ? Colors.black : Colors.white;
 
-      if (processingState == ProcessingState.loading || processingState == ProcessingState.buffering) {
+      if (processingState == ProcessingState.loading ||
+          processingState == ProcessingState.buffering) {
         return AnimatedContainer(
           duration: kAppAnimationDuration,
           width: 70,
           height: 70,
-          decoration: BoxDecoration(
-              color: theme.primaryColor,
-              shape: BoxShape.circle
-          ),
+          decoration:
+              BoxDecoration(color: theme.primaryColor, shape: BoxShape.circle),
           child: Center(
             child: LoadingAnimationWidget.staggeredDotsWave(
               color: buttonColor,
@@ -769,21 +687,20 @@ class PlayerControls extends StatelessWidget {
                   BoxShadow(
                       color: theme.primaryColor.withValues(alpha: 0.7),
                       blurRadius: 20,
-                      spreadRadius: 2
-                  )
-                ]
-            ),
+                      spreadRadius: 2)
+                ]),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(opacity: animation, child: ScaleTransition(scale: animation, child: child));
+                return FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(scale: animation, child: child));
               },
               child: Icon(
-                key: ValueKey<bool>(isPlaying),
-                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                size: 45,
-                color: buttonColor
-              ),
+                  key: ValueKey<bool>(isPlaying),
+                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  size: 45,
+                  color: buttonColor),
             ),
           ),
         );
@@ -797,120 +714,111 @@ class PlayerControls extends StatelessWidget {
         borderRadius: 40,
         blur: 20,
         border: 1.5,
-        linearGradient: LinearGradient(
-            colors: [
-              theme.colorScheme.surface.withValues(alpha: 0.15),
-              theme.colorScheme.surface.withValues(alpha: 0.05)
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight
-        ),
-        borderGradient: LinearGradient(
-            colors: [
-              theme.primaryColor.withValues(alpha: 0.5),
-              theme.colorScheme.surface.withValues(alpha: 0.1)
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight
-        ),
+        linearGradient: LinearGradient(colors: [
+          theme.colorScheme.surface.withValues(alpha: 0.15),
+          theme.colorScheme.surface.withValues(alpha: 0.05)
+        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderGradient: LinearGradient(colors: [
+          theme.primaryColor.withValues(alpha: 0.5),
+          theme.colorScheme.surface.withValues(alpha: 0.1)
+        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
         child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 25.0, vertical: 20.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 25.0, vertical: 20.0),
             child: radioProvider.activeStations.isEmpty
-                ? Center(child: Text("Nincs lejátszható állomás", style: theme.textTheme.titleMedium))
+                ? Center(
+                    child: Text("Nincs lejátszható állomás",
+                        style: theme.textTheme.titleMedium))
                 : Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    station.name,
-                                    style: theme.textTheme.headlineMedium,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                        Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                    Text(
+                                      station.name,
+                                      style: theme.textTheme.headlineMedium,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      station.nowPlaying,
+                                      style: theme.textTheme.bodyMedium,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ])),
+                              const SizedBox(width: 15),
+                              PressableScaleWidget(
+                                onTap: () =>
+                                    radioProvider.toggleFavorite(station.id),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 350),
+                                  transitionBuilder: (child, animation) =>
+                                      ScaleTransition(
+                                    scale: animation.drive(
+                                        Tween(begin: 0.0, end: 1.0).chain(
+                                            CurveTween(
+                                                curve: Curves.elasticOut))),
+                                    child: child,
                                   ),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    station.nowPlaying,
-                                    style: theme.textTheme.bodyMedium,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ]
-                            )
-                        ),
-                        const SizedBox(width: 15),
-                        PressableScaleWidget(
-                          onTap: () => radioProvider.toggleFavorite(station.id),
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 350),
-                            transitionBuilder: (child, animation) => ScaleTransition(
-                              scale: animation.drive(Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.elasticOut))),
-                              child: child,
-                            ),
-                            child: Icon(
-                                key: ValueKey<bool>(station.isFavorite),
-                                station.isFavorite ? Icons.favorite : Icons.favorite_border,
-                                color: station.isFavorite ? const Color(0xFFE91E63) : theme.primaryColor,
-                                size: 30
-                            ),
-                          ),
-                        )
-                      ]
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        PressableScaleWidget(
-                            child: IconButton(
-                                icon: const Icon(Icons.skip_previous_rounded),
-                                onPressed: radioProvider.previousStation,
-                                iconSize: 38,
-                                color: theme.iconTheme.color?.withValues(alpha: 0.8)
-                            )
-                        ),
-                        playPauseButton(),
-                        PressableScaleWidget(
-                            child: IconButton(
-                                icon: const Icon(Icons.skip_next_rounded),
-                                onPressed: radioProvider.nextStation,
-                                iconSize: 38,
-                                color: theme.iconTheme.color?.withValues(alpha: 0.8)
-                            )
-                        )
-                      ]
-                  ),
-                  Row(
-                      children: [
-                        Icon(
-                            Icons.volume_mute_rounded,
-                            size: 22,
-                            color: theme.iconTheme.color?.withValues(alpha: 0.6)
-                        ),
-                        Expanded(
-                            child: Slider(
-                                value: radioProvider.systemVolume,
-                                onChanged: radioProvider.setSystemVolume,
-                                activeColor: theme.primaryColor,
-                                inactiveColor: theme.colorScheme.surfaceContainerHighest
-                            )
-                        ),
-                        Icon(
-                            Icons.volume_up_rounded,
-                            size: 22,
-                            color: theme.iconTheme.color?.withValues(alpha: 0.6)
-                        )
-                      ]
-                  )
-                ]
-            )
-        )
-    );
+                                  child: Icon(
+                                      key: ValueKey<bool>(station.isFavorite),
+                                      station.isFavorite
+                                          ? Icons.favorite
+                                          : Icons.favorite_border,
+                                      color: station.isFavorite
+                                          ? const Color(0xFFE91E63)
+                                          : theme.primaryColor,
+                                      size: 30),
+                                ),
+                              )
+                            ]),
+                        const SizedBox(height: 10),
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              PressableScaleWidget(
+                                  child: IconButton(
+                                      icon: const Icon(
+                                          Icons.skip_previous_rounded),
+                                      onPressed: radioProvider.previousStation,
+                                      iconSize: 38,
+                                      color: theme.iconTheme.color
+                                          ?.withValues(alpha: 0.8))),
+                              playPauseButton(),
+                              PressableScaleWidget(
+                                  child: IconButton(
+                                      icon: const Icon(Icons.skip_next_rounded),
+                                      onPressed: radioProvider.nextStation,
+                                      iconSize: 38,
+                                      color: theme.iconTheme.color
+                                          ?.withValues(alpha: 0.8)))
+                            ]),
+                        Row(children: [
+                          Icon(Icons.volume_mute_rounded,
+                              size: 22,
+                              color: theme.iconTheme.color
+                                  ?.withValues(alpha: 0.6)),
+                          Expanded(
+                              child: Slider(
+                                  value: radioProvider.systemVolume,
+                                  onChanged: radioProvider.setSystemVolume,
+                                  activeColor: theme.primaryColor,
+                                  inactiveColor: theme
+                                      .colorScheme.surfaceContainerHighest)),
+                          Icon(Icons.volume_up_rounded,
+                              size: 22,
+                              color:
+                                  theme.iconTheme.color?.withValues(alpha: 0.6))
+                        ])
+                      ])));
   }
 }
 
@@ -924,7 +832,8 @@ class AnimatedListItem extends StatefulWidget {
   State<AnimatedListItem> createState() => _AnimatedListItemState();
 }
 
-class _AnimatedListItemState extends State<AnimatedListItem> with SingleTickerProviderStateMixin {
+class _AnimatedListItemState extends State<AnimatedListItem>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _offsetAnimation;
   late Animation<double> _fadeAnimation;
@@ -936,8 +845,11 @@ class _AnimatedListItemState extends State<AnimatedListItem> with SingleTickerPr
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    final curve = CurvedAnimation(parent: _controller, curve: Curves.decelerate);
-    _offsetAnimation = Tween<Offset>(begin: const Offset(0, 0.5), end: Offset.zero).animate(curve);
+    final curve =
+        CurvedAnimation(parent: _controller, curve: Curves.decelerate);
+    _offsetAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.5), end: Offset.zero)
+            .animate(curve);
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(curve);
 
     Timer(Duration(milliseconds: widget.index * 70), () {
@@ -1019,95 +931,98 @@ class _AllStationsSheetState extends State<AllStationsSheet> {
         border: 1,
         linearGradient: BottomSheetStyles.glassGradient(context),
         borderGradient: BottomSheetStyles.glassBorderGradient(context),
-        child: Column(
-            children: [
-              Container(
-                  width: 40,
-                  height: 5,
-                  margin: const EdgeInsets.symmetric(vertical: 15),
-                  decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(10)
-                  )
+        child: Column(children: [
+          Container(
+              width: 40,
+              height: 5,
+              margin: const EdgeInsets.symmetric(vertical: 15),
+              decoration: BoxDecoration(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(10))),
+          Text("Összes Állomás", style: theme.textTheme.titleLarge),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Keresés...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none),
+                filled: true,
+                fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               ),
-              Text("Összes Állomás", style: theme.textTheme.titleLarge),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Keresés...',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide.none
-                    ),
-                    filled: true,
-                    fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                  child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _filteredStations.length,
-                      itemBuilder: (context, index) {
-                        final station = _filteredStations[index];
-                        final bool isCurrentlyPlaying = radioProvider.currentStation.id == station.id && radioProvider.audioPlayer.playing;
-                        return AnimatedListItem(
-                          index: index,
-                          child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                              leading: CircleAvatar(
-                                  radius: 25,
-                                  backgroundImage: NetworkImage(station.imageUrl),
-                                  onBackgroundImageError: (e,s) => {},
-                                  child: Image.asset('assets/images/default_radio.png')
-                              ),
-                              title: Text(station.name, style: theme.textTheme.titleMedium),
-                              subtitle: Text(
-                                  station.nowPlaying,
-                                  style: theme.textTheme.bodyMedium,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis
-                              ),
-                              trailing: isCurrentlyPlaying
-                                  ? Icon(Icons.bar_chart_rounded, color: theme.primaryColor)
-                                  : PressableScaleWidget(
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+              child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _filteredStations.length,
+                  itemBuilder: (context, index) {
+                    final station = _filteredStations[index];
+                    final bool isCurrentlyPlaying =
+                        radioProvider.currentStation.id == station.id &&
+                            radioProvider.audioPlayer.playing;
+                    return AnimatedListItem(
+                      index: index,
+                      child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 8),
+                          leading: CircleAvatar(
+                              radius: 25,
+                              backgroundImage: NetworkImage(station.imageUrl),
+                              onBackgroundImageError: (e, s) => {},
+                              child: Image.asset(
+                                  'assets/images/default_radio.png')),
+                          title: Text(station.name,
+                              style: theme.textTheme.titleMedium),
+                          subtitle: Text(station.nowPlaying,
+                              style: theme.textTheme.bodyMedium,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          trailing: isCurrentlyPlaying
+                              ? Icon(Icons.bar_chart_rounded,
+                                  color: theme.primaryColor)
+                              : PressableScaleWidget(
                                   child: IconButton(
                                       icon: Icon(
                                           Icons.play_circle_outline_rounded,
-                                          color: theme.primaryColor.withValues(alpha: 0.7),
-                                          size: 30
-                                      ),
+                                          color: theme.primaryColor
+                                              .withValues(alpha: 0.7),
+                                          size: 30),
                                       onPressed: () async {
-                                        await context.read<RadioProvider>().setSwipeOnlyFavorites(false);
-                                        final newIndex = radioProvider.stations.indexWhere((s) => s.id == station.id);
+                                        await context
+                                            .read<RadioProvider>()
+                                            .setSwipeOnlyFavorites(false);
+                                        if (!context.mounted) return;
+                                        final newIndex = radioProvider.stations
+                                            .indexWhere(
+                                                (s) => s.id == station.id);
                                         if (newIndex != -1) {
-                                          radioProvider.pageController.jumpToPage(newIndex);
+                                          radioProvider.pageController
+                                              .jumpToPage(newIndex);
                                         }
                                         Navigator.pop(context);
-                                      }
-                                  )
-                              ),
-                              onTap: () async {
-                                await context.read<RadioProvider>().setSwipeOnlyFavorites(false);
-                                final newIndex = radioProvider.stations.indexWhere((s) => s.id == station.id);
-                                if (newIndex != -1) {
-                                  radioProvider.pageController.jumpToPage(newIndex);
-                                }
-                                Navigator.pop(context);
-                              }
-                          ),
-                        );
-                      }
-                  )
-              )
-            ]
-        )
-    );
+                                      })),
+                          onTap: () async {
+                            await context
+                                .read<RadioProvider>()
+                                .setSwipeOnlyFavorites(false);
+                            if (!context.mounted) return;
+                            final newIndex = radioProvider.stations
+                                .indexWhere((s) => s.id == station.id);
+                            if (newIndex != -1) {
+                              radioProvider.pageController.jumpToPage(newIndex);
+                            }
+                            Navigator.pop(context);
+                          }),
+                    );
+                  }))
+        ]));
   }
 }
 
@@ -1166,49 +1081,43 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
         border: 1,
         linearGradient: BottomSheetStyles.glassGradient(context),
         borderGradient: BottomSheetStyles.glassBorderGradient(context),
-        child: Column(
-            children: [
-              Container(
-                  width: 40,
-                  height: 5,
-                  margin: const EdgeInsets.symmetric(vertical: 15),
-                  decoration: BoxDecoration(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(10)
-                  )
+        child: Column(children: [
+          Container(
+              width: 40,
+              height: 5,
+              margin: const EdgeInsets.symmetric(vertical: 15),
+              decoration: BoxDecoration(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(10))),
+          Text("Kedvencek", style: theme.textTheme.titleLarge),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Keresés...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none),
+                filled: true,
+                fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               ),
-              Text("Kedvencek", style: theme.textTheme.titleLarge),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Keresés...',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide.none
-                    ),
-                    filled: true,
-                    fillColor: theme.colorScheme.surface.withValues(alpha: 0.2),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                  child: favorites.isEmpty
-                      ? Center(
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+              child: favorites.isEmpty
+                  ? Center(
                       child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 40.0),
                           child: Text(
                               "Még nincsenek kedvenceid.\nA lejátszón a szív ikonnal adhatsz hozzá állomásokat.",
                               textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium
-                          )
-                      )
-                  )
-                      : ListView.builder(
+                              style: theme.textTheme.bodyMedium)))
+                  : ListView.builder(
                       padding: const EdgeInsets.all(12),
                       itemCount: favorites.length,
                       itemBuilder: (context, index) {
@@ -1216,43 +1125,40 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                         return AnimatedListItem(
                           index: index,
                           child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 8),
                               leading: CircleAvatar(
                                   radius: 25,
-                                  backgroundImage: NetworkImage(station.imageUrl)
-                              ),
-                              title: Text(station.name, style: theme.textTheme.titleMedium),
-                              subtitle: Text(
-                                  station.nowPlaying,
+                                  backgroundImage:
+                                      NetworkImage(station.imageUrl)),
+                              title: Text(station.name,
+                                  style: theme.textTheme.titleMedium),
+                              subtitle: Text(station.nowPlaying,
                                   style: theme.textTheme.bodyMedium,
                                   maxLines: 1,
-                                  overflow: TextOverflow.ellipsis
-                              ),
+                                  overflow: TextOverflow.ellipsis),
                               trailing: PressableScaleWidget(
                                   child: IconButton(
-                                      icon: Icon(
-                                          Icons.play_circle_fill_rounded,
-                                          color: theme.primaryColor,
-                                          size: 30
-                                      ),
+                                      icon: Icon(Icons.play_circle_fill_rounded,
+                                          color: theme.primaryColor, size: 30),
                                       onPressed: () async {
-                                        await context.read<RadioProvider>().setSwipeOnlyFavorites(true);
-                                        final newIndex = radioProvider.favoriteStations.indexWhere((s) => s.id == station.id);
+                                        await context
+                                            .read<RadioProvider>()
+                                            .setSwipeOnlyFavorites(true);
+                                        if (!context.mounted) return;
+                                        final newIndex = radioProvider
+                                            .favoriteStations
+                                            .indexWhere(
+                                                (s) => s.id == station.id);
                                         if (newIndex != -1) {
-                                          radioProvider.pageController.jumpToPage(newIndex);
+                                          radioProvider.pageController
+                                              .jumpToPage(newIndex);
                                         }
                                         Navigator.pop(context);
-                                      }
-                                  )
-                              )
-                          ),
+                                      }))),
                         );
-                      }
-                  )
-              )
-            ]
-        )
-    );
+                      }))
+        ]));
   }
 }
 
@@ -1275,262 +1181,580 @@ class SettingsSheet extends StatelessWidget {
         linearGradient: BottomSheetStyles.glassGradient(context),
         borderGradient: BottomSheetStyles.glassBorderGradient(context),
         child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 20.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 15.0, vertical: 20.0),
             child: SingleChildScrollView(
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Center(child: Text("Beállítások", style: theme.textTheme.titleLarge)),
-                      const SizedBox(height: 20),
-                      Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Megjelenés", style: theme.textTheme.titleMedium)),
-                      const SizedBox(height: 10),
-                      SegmentedButton<ThemeMode>(
-                          segments: const <ButtonSegment<ThemeMode>>[
-                            ButtonSegment<ThemeMode>(value: ThemeMode.light, label: Text('Világos'), icon: Icon(Icons.wb_sunny_outlined)),
-                            ButtonSegment<ThemeMode>(value: ThemeMode.dark, label: Text('Sötét'), icon: Icon(Icons.nightlight_outlined)),
-                            ButtonSegment<ThemeMode>(value: ThemeMode.system, label: Text('Rendszer'), icon: Icon(Icons.brightness_auto_outlined))
-                          ],
-                          selected: {themeProvider.themeMode},
-                          onSelectionChanged: (s) => themeProvider.setThemeMode(s.first),
-                          style: _segmentedButtonStyle(context)
-                      ),
-                      const SizedBox(height: 10),
-                      SwitchListTile(
-                          title: Text("Teljes képernyő", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                          subtitle: Text("Elrejti a rendszer állapotsávját", style: theme.textTheme.bodyMedium),
-                          value: themeProvider.isFullScreen,
-                          onChanged: themeProvider.setFullScreen,
-                          activeThumbColor: theme.primaryColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10)
-                      ),
-                      const Divider(height: 25, thickness: 0.5),
-                      Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Lejátszás", style: theme.textTheme.titleMedium)),
-                      SwitchListTile(
-                          title: Text("Képernyő ébren tartása", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                          subtitle: Text("Megakadályozza a képernyő kikapcsolását", style: theme.textTheme.bodyMedium),
-                          value: themeProvider.isAlwaysOn,
-                          onChanged: themeProvider.setAlwaysOn,
-                          activeThumbColor: theme.primaryColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10)
-                      ),
-                      SwitchListTile(
-                          title: Text("Csak a kedvencek lapozása", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                          subtitle: Text("A főképernyőn csak a kedvencek jelennek meg", style: theme.textTheme.bodyMedium),
-                          value: radioProvider.swipeOnlyFavorites,
-                          onChanged: radioProvider.setSwipeOnlyFavorites,
-                          activeThumbColor: theme.primaryColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10)
-                      ),
-                      if (!themeProvider.backgroundPlayback)
-                        SwitchListTile(
-                          title: Text("Lejátszás a háttérben", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                          subtitle: Text("Engedélyezi a folyamatos lejátszást", style: theme.textTheme.bodyMedium),
-                          value: themeProvider.backgroundPlayback,
-                          onChanged: (bool value) async {
-                            if (value) {
-                              await showDialog(
-                                context: context,
-                                barrierColor: Colors.black.withValues(alpha: 0.4),
-                                builder: (BuildContext dialogContext) {
-                                  return BackdropFilter(
-                                    filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                                    child: Dialog(
-                                      backgroundColor: Colors.transparent,
-                                      elevation: 0,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(30),
-                                          gradient: BottomSheetStyles.glassBorderGradient(dialogContext),
-                                        ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(1.5),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(28.5),
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                gradient: BottomSheetStyles.glassGradient(dialogContext),
-                                              ),
-                                              child: Padding(
-                                                padding: const EdgeInsets.fromLTRB(25, 25, 25, 20),
-                                                child: Column(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text("Háttérben történő lejátszás", style: theme.textTheme.titleLarge),
-                                                    const SizedBox(height: 15),
-                                                    Text(
-                                                        "A folyamatos lejátszás biztosításához az alkalmazás akkumulátorhasználati beállítását 'Nincs korlátozva' opcióra kell állítani.\n\nAz 'OK' gombra kattintva átirányítjuk az alkalmazás beállításaihoz, ahol ezt manuálisan megteheti.",
-                                                        style: theme.textTheme.bodyMedium
+                  Center(
+                      child: Text("Beállítások",
+                          style: theme.textTheme.titleLarge)),
+                  const SizedBox(height: 20),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child: Text("Megjelenés",
+                          style: theme.textTheme.titleMedium)),
+                  const SizedBox(height: 10),
+                  SegmentedButton<ThemeMode>(
+                      segments: const <ButtonSegment<ThemeMode>>[
+                        ButtonSegment<ThemeMode>(
+                            value: ThemeMode.light,
+                            label: Text('Világos'),
+                            icon: Icon(Icons.wb_sunny_outlined)),
+                        ButtonSegment<ThemeMode>(
+                            value: ThemeMode.dark,
+                            label: Text('Sötét'),
+                            icon: Icon(Icons.nightlight_outlined)),
+                        ButtonSegment<ThemeMode>(
+                            value: ThemeMode.system,
+                            label: Text('Rendszer'),
+                            icon: Icon(Icons.brightness_auto_outlined))
+                      ],
+                      selected: {
+                        themeProvider.themeMode
+                      },
+                      onSelectionChanged: (s) =>
+                          themeProvider.setThemeMode(s.first),
+                      style: _segmentedButtonStyle(context)),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                      title: Text("Teljes képernyő",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("Elrejti a rendszer állapotsávját",
+                          style: theme.textTheme.bodyMedium),
+                      value: themeProvider.isFullScreen,
+                      onChanged: themeProvider.setFullScreen,
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  const Divider(height: 25, thickness: 0.5),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child: Text("Lejátszás",
+                          style: theme.textTheme.titleMedium)),
+                  SwitchListTile(
+                      title: Text("Képernyő ébren tartása",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("Megakadályozza a képernyő kikapcsolását",
+                          style: theme.textTheme.bodyMedium),
+                      value: themeProvider.isAlwaysOn,
+                      onChanged: themeProvider.setAlwaysOn,
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  SwitchListTile(
+                      title: Text("Csak a kedvencek lapozása",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text(
+                          "A főképernyőn csak a kedvencek jelennek meg",
+                          style: theme.textTheme.bodyMedium),
+                      value: radioProvider.swipeOnlyFavorites,
+                      onChanged: radioProvider.setSwipeOnlyFavorites,
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  if (!themeProvider.backgroundPlayback)
+                    SwitchListTile(
+                      title: Text("Lejátszás a háttérben",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("Engedélyezi a folyamatos lejátszást",
+                          style: theme.textTheme.bodyMedium),
+                      value: themeProvider.backgroundPlayback,
+                      onChanged: (bool value) async {
+                        if (value) {
+                          await showDialog(
+                            context: context,
+                            barrierColor: Colors.black.withValues(alpha: 0.4),
+                            builder: (BuildContext dialogContext) {
+                              return BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                                child: Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  elevation: 0,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(30),
+                                      gradient:
+                                          BottomSheetStyles.glassBorderGradient(
+                                              dialogContext),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(1.5),
+                                      child: ClipRRect(
+                                        borderRadius:
+                                            BorderRadius.circular(28.5),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            gradient:
+                                                BottomSheetStyles.glassGradient(
+                                                    dialogContext),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                                25, 25, 25, 20),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                    "Háttérben történő lejátszás",
+                                                    style: theme
+                                                        .textTheme.titleLarge),
+                                                const SizedBox(height: 15),
+                                                Text(
+                                                    "A folyamatos lejátszás biztosításához az alkalmazás akkumulátorhasználati beállítását 'Nincs korlátozva' opcióra kell állítani.\n\nAz 'OK' gombra kattintva átirányítjuk az alkalmazás beállításaihoz, ahol ezt manuálisan megteheti.",
+                                                    style: theme
+                                                        .textTheme.bodyMedium),
+                                                const SizedBox(height: 20),
+                                                Align(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child: TextButton(
+                                                    style: TextButton.styleFrom(
+                                                      foregroundColor:
+                                                          theme.primaryColor,
                                                     ),
-                                                    const SizedBox(height: 20),
-                                                    Align(
-                                                      alignment: Alignment.centerRight,
-                                                      child: TextButton(
-                                                        style: TextButton.styleFrom(
-                                                          foregroundColor: theme.primaryColor,
-                                                        ),
-                                                        child: Text("OK", style: theme.textTheme.labelLarge?.copyWith(color: theme.primaryColor, fontSize: 16)),
-                                                        onPressed: () {
-                                                          Navigator.of(dialogContext).pop();
-                                                          openAppSettings();
-                                                          themeProvider.setBackgroundPlayback(true);
-                                                        },
-                                                      ),
-                                                    ),
-                                                  ],
+                                                    child: Text("OK",
+                                                        style: theme.textTheme
+                                                            .labelLarge
+                                                            ?.copyWith(
+                                                                color: theme
+                                                                    .primaryColor,
+                                                                fontSize: 16)),
+                                                    onPressed: () {
+                                                      Navigator.of(
+                                                              dialogContext)
+                                                          .pop();
+                                                      openAppSettings();
+                                                      themeProvider
+                                                          .setBackgroundPlayback(
+                                                              true);
+                                                    },
+                                                  ),
                                                 ),
-                                              ),
+                                              ],
                                             ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  );
-                                },
+                                  ),
+                                ),
                               );
-                            }
-                          },
-                          activeThumbColor: theme.primaryColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                        ),
-                      const Divider(height: 25, thickness: 0.5),
-                      Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Neonszín", style: theme.textTheme.titleMedium)),
-                      const SizedBox(height: 20),
-                      Column(
-                        children: [
-                          Container(
-                            height: 50,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(25),
-                              gradient: const LinearGradient(
-                                colors: [
-                                  Color(0xFFff0000), Color(0xFFFFFF00), Color(0xFF00FF00),
-                                  Color(0xFF00FFFF), Color(0xFF0000FF), Color(0xFFFF00FF),
-                                  Color(0xFFff0000)
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Slider(
-                            value: themeProvider.selectedColor.computeHue,
-                            min: 0,
-                            max: 360,
-                            divisions: 360,
-                            onChanged: (value) {
-                              final color = HSVColor.fromAHSV(1.0, value, 1.0, 1.0).toColor();
-                              themeProvider.setThemeColor(color);
                             },
-                            activeColor: themeProvider.selectedColor,
-                            inactiveColor: theme.colorScheme.surfaceContainerHighest,
+                          );
+                        }
+                      },
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  const Divider(height: 25, thickness: 0.5),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child:
+                          Text("Neonszín", style: theme.textTheme.titleMedium)),
+                  const SizedBox(height: 20),
+                  Column(
+                    children: [
+                      Container(
+                        height: 50,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(25),
+                          gradient: const LinearGradient(
+                            colors: [
+                              Color(0xFFff0000),
+                              Color(0xFFFFFF00),
+                              Color(0xFF00FF00),
+                              Color(0xFF00FFFF),
+                              Color(0xFF0000FF),
+                              Color(0xFFFF00FF),
+                              Color(0xFFff0000)
+                            ],
                           ),
-                          const SizedBox(height: 20),
-                          AnimatedContainer(
-                            duration: kAppAnimationDuration,
-                            curve: Curves.easeInOut,
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                                color: themeProvider.selectedColor,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                      color: themeProvider.selectedColor.withValues(alpha: 0.7),
-                                      blurRadius: 15,
-                                      spreadRadius: 3
-                                  )
-                                ]
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      SwitchListTile(
-                          title: Text("Lejátszás gomb fekete", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                          subtitle: Text("Alapértelmezetten fehér", style: theme.textTheme.bodyMedium),
-                          value: themeProvider.playButtonBlack,
-                          onChanged: themeProvider.setPlayButtonBlack,
-                          activeThumbColor: theme.primaryColor,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10)
-                      ),
-                      const Divider(height: 25, thickness: 0.5),
-                      Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Privát DNS", style: theme.textTheme.titleMedium)),
-                      const SizedBox(height: 5),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 10.0),
-                        child: Text(
-                          "Az alkalmazás saját DNS-feloldót használ a hálózati szűrők megkerüléséhez.",
-                          style: theme.textTheme.bodyMedium,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      RadioListTile<String>(
-                        title: Text("dns.adguard.com", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                        subtitle: Text("Alapértelmezett AdGuard DNS", style: theme.textTheme.bodyMedium),
-                        value: DnsService.adguardDefault,
-                        groupValue: themeProvider.dnsProvider,
+                      const SizedBox(height: 20),
+                      Slider(
+                        value: themeProvider.selectedColor.computeHue,
+                        min: 0,
+                        max: 360,
+                        divisions: 360,
                         onChanged: (value) {
-                          if (value != null) themeProvider.setDnsProvider(value);
+                          final color =
+                              HSVColor.fromAHSV(1.0, value, 1.0, 1.0).toColor();
+                          themeProvider.setThemeColor(color);
                         },
-                        activeColor: theme.primaryColor,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                        activeColor: themeProvider.selectedColor,
+                        inactiveColor:
+                            theme.colorScheme.surfaceContainerHighest,
                       ),
-                      RadioListTile<String>(
-                        title: Text("dns.adguard-dns.com", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                        subtitle: Text("Alternatív AdGuard DNS", style: theme.textTheme.bodyMedium),
-                        value: DnsService.adguardDns,
-                        groupValue: themeProvider.dnsProvider,
-                        onChanged: (value) {
-                          if (value != null) themeProvider.setDnsProvider(value);
-                        },
-                        activeColor: theme.primaryColor,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                      const SizedBox(height: 20),
+                      AnimatedContainer(
+                        duration: kAppAnimationDuration,
+                        curve: Curves.easeInOut,
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                            color: themeProvider.selectedColor,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                  color: themeProvider.selectedColor
+                                      .withValues(alpha: 0.7),
+                                  blurRadius: 15,
+                                  spreadRadius: 3)
+                            ]),
                       ),
-                      // === ARCHIVÁLT ZENÉK ===
-                      Builder(builder: (context) {
-                        final mp = context.watch<MusicProvider>();
-                        final archived = mp.archivedSongs;
-                        if (archived.isEmpty) return const SizedBox.shrink();
-                        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  SwitchListTile(
+                      title: Text("Lejátszás gomb fekete",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("Alapértelmezetten fehér",
+                          style: theme.textTheme.bodyMedium),
+                      value: themeProvider.playButtonBlack,
+                      onChanged: themeProvider.setPlayButtonBlack,
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  const Divider(height: 25, thickness: 0.5),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child: Text("Privát DNS",
+                          style: theme.textTheme.titleMedium)),
+                  const SizedBox(height: 5),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10.0),
+                    child: Text(
+                      "Az alkalmazás saját DNS-feloldót használ a hálózati szűrők megkerüléséhez.",
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  RadioListTile<String>(
+                    title: Text("dns.adguard.com",
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.normal)),
+                    subtitle: Text("Alapértelmezett AdGuard DNS",
+                        style: theme.textTheme.bodyMedium),
+                    value: DnsService.adguardDefault,
+                    groupValue: themeProvider.dnsProvider,
+                    onChanged: (value) {
+                      if (value != null) {
+                        themeProvider.setDnsProvider(value);
+                      }
+                    },
+                    activeColor: theme.primaryColor,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  RadioListTile<String>(
+                    title: Text("dns.adguard-dns.com",
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.normal)),
+                    subtitle: Text("Alternatív AdGuard DNS",
+                        style: theme.textTheme.bodyMedium),
+                    value: DnsService.adguardDns,
+                    groupValue: themeProvider.dnsProvider,
+                    onChanged: (value) {
+                      if (value != null) {
+                        themeProvider.setDnsProvider(value);
+                      }
+                    },
+                    activeColor: theme.primaryColor,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  // === LISTA SUHINTÁSI BEÁLLÍTÁSOK ===
+                  Builder(builder: (context) {
+                    final mp = context.watch<MusicProvider>();
+
+                    String getActionName(String action) {
+                      switch (action) {
+                        case 'archive':
+                          return 'Archiválás';
+                        case 'delete':
+                          return 'Törlés';
+                        case 'play_next':
+                          return 'Lejátszás következőként';
+                        case 'add_to_queue':
+                          return 'Felvétel a sorra';
+                        case 'play':
+                          return 'Zene indítása';
+                        case 'edit_title':
+                          return 'Cím szerkesztés';
+                        case 'add_to_album':
+                          return 'Albumhoz adás';
+                        case 'edit_tags':
+                          return 'Címke szerkesztés';
+                        case 'details':
+                          return 'Részletek';
+                        case 'none':
+                        default:
+                          return 'Semmi';
+                      }
+                    }
+
+                    const items = [
+                      DropdownMenuItem(
+                          value: 'archive', child: Text("Archiválás")),
+                      DropdownMenuItem(value: 'delete', child: Text("Törlés")),
+                      DropdownMenuItem(
+                          value: 'play_next', child: Text("Következőként")),
+                      DropdownMenuItem(
+                          value: 'add_to_queue',
+                          child: Text("Felvétel a sorra")),
+                      DropdownMenuItem(
+                          value: 'play', child: Text("Zene indítása")),
+                      DropdownMenuItem(
+                          value: 'edit_title', child: Text("Cím szerkesztés")),
+                      DropdownMenuItem(
+                          value: 'add_to_album', child: Text("Albumhoz adás")),
+                      DropdownMenuItem(
+                          value: 'edit_tags', child: Text("Címke szerkesztés")),
+                      DropdownMenuItem(
+                          value: 'details', child: Text("Részletek")),
+                      DropdownMenuItem(value: 'none', child: Text("Semmi")),
+                    ];
+
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           const Divider(height: 25, thickness: 0.5),
-                          Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("Archivált zenék", style: theme.textTheme.titleMedium)),
-                          const SizedBox(height: 5),
-                          Padding(padding: const EdgeInsets.only(left: 10.0), child: Text("${archived.length} zene elrejtve", style: theme.textTheme.bodyMedium)),
-                          const SizedBox(height: 10),
-                          ...archived.map((song) => ListTile(
-                            title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.normal)),
-                            subtitle: Text(song.artist ?? "Ismeretlen", style: theme.textTheme.bodySmall),
-                            trailing: TextButton(
-                              child: Text("Visszaállítás", style: TextStyle(color: theme.primaryColor)),
-                              onPressed: () => mp.unarchiveSong(song.id),
+                          Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 10, bottom: 8),
+                              child: Text("Lista gesztusok",
+                                  style: theme.textTheme.titleMedium)),
+                          ListTile(
+                            dense: true,
+                            leading: Icon(Icons.swipe_right_rounded,
+                                color: theme.primaryColor, size: 22),
+                            title: const Text("Jobbra húzás a listában"),
+                            subtitle:
+                                Text(getActionName(mp.listSwipeRightAction)),
+                            trailing: DropdownButton<String>(
+                              value: mp.listSwipeRightAction,
+                              underline: const SizedBox(),
+                              items: items,
+                              onChanged: (val) =>
+                                  mp.setListSwipeAction(true, val!),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                          )),
+                          ),
+                          ListTile(
+                            dense: true,
+                            leading: Icon(Icons.swipe_left_rounded,
+                                color: theme.primaryColor, size: 22),
+                            title: const Text("Balra húzás a listában"),
+                            subtitle:
+                                Text(getActionName(mp.listSwipeLeftAction)),
+                            trailing: DropdownButton<String>(
+                              value: mp.listSwipeLeftAction,
+                              underline: const SizedBox(),
+                              items: items,
+                              onChanged: (val) =>
+                                  mp.setListSwipeAction(false, val!),
+                            ),
+                          ),
                         ]);
-                      }),
-                    ]
-                )
-            )
-        )
-    );
+                  }),
+                  // === CÍMKÉK KEZELÉSE ===
+                  Builder(builder: (context) {
+                    final mp = context.watch<MusicProvider>();
+                    final tags = mp.allTags;
+                    if (tags.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 25, thickness: 0.5),
+                          ExpansionTile(
+                            tilePadding:
+                                const EdgeInsets.symmetric(horizontal: 10),
+                            leading: Icon(Icons.label_outline,
+                                color: theme.primaryColor, size: 22),
+                            title: Text("Címkék kezelése",
+                                style: theme.textTheme.titleMedium),
+                            subtitle: Text("${tags.length} címke",
+                                style: theme.textTheme.bodySmall),
+                            children: tags.map((tag) {
+                              final pinned = mp.pinnedTags.contains(tag);
+                              final count = mp.songsWithTag(tag).length;
+                              return ListTile(
+                                dense: true,
+                                leading: Icon(
+                                    pinned ? Icons.push_pin : Icons.label,
+                                    color: pinned
+                                        ? theme.primaryColor
+                                        : theme.iconTheme.color
+                                            ?.withValues(alpha: 0.5),
+                                    size: 20),
+                                title: Text(tag,
+                                    style: theme.textTheme.titleSmall),
+                                subtitle: Text("$count zene",
+                                    style: theme.textTheme.bodySmall),
+                                trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                            pinned
+                                                ? Icons.push_pin
+                                                : Icons.push_pin_outlined,
+                                            color: pinned
+                                                ? theme.primaryColor
+                                                : theme.iconTheme.color
+                                                    ?.withValues(alpha: 0.4),
+                                            size: 20),
+                                        tooltip: pinned ? "Levétel" : "Kitűzés",
+                                        onPressed: () => mp.togglePinTag(tag),
+                                      ),
+                                      IconButton(
+                                        icon: Icon(Icons.delete_outline,
+                                            color: Colors.red.shade300,
+                                            size: 20),
+                                        tooltip: "Törlés",
+                                        onPressed: () {
+                                          showDialog(
+                                              context: context,
+                                              barrierColor: Colors.black87,
+                                              builder: (ctx) => AlertDialog(
+                                                    backgroundColor:
+                                                        Color.alphaBlend(
+                                                            theme.colorScheme
+                                                                .surface
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.97),
+                                                            Colors.black),
+                                                    shape:
+                                                        RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        24)),
+                                                    title: const Text(
+                                                        "Címke törlése"),
+                                                    content: Text(
+                                                        "\"$tag\" címke törlése az összes zenéről?\n($count zene érintett)"),
+                                                    actions: [
+                                                      TextButton(
+                                                          child: const Text(
+                                                              "Mégse"),
+                                                          onPressed: () =>
+                                                              Navigator.pop(
+                                                                  ctx)),
+                                                      ElevatedButton(
+                                                          style: ElevatedButton
+                                                              .styleFrom(
+                                                                  backgroundColor:
+                                                                      Colors
+                                                                          .red,
+                                                                  foregroundColor:
+                                                                      Colors
+                                                                          .white),
+                                                          child: const Text(
+                                                              "Törlés"),
+                                                          onPressed: () {
+                                                            // Címke eltávolítása az összes zenéről
+                                                            for (final s in mp
+                                                                .songsWithTag(
+                                                                    tag)) {
+                                                              mp.removeTagFromSong(
+                                                                  s.id, tag);
+                                                            }
+                                                            mp.unpinTag(tag);
+                                                            Navigator.pop(ctx);
+                                                          }),
+                                                    ],
+                                                  ));
+                                        },
+                                      ),
+                                    ]),
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 14),
+                              );
+                            }).toList(),
+                          ),
+                        ]);
+                  }),
+                  // === ARCHIVÁLT ZENÉK ===
+                  Builder(builder: (context) {
+                    final mp = context.watch<MusicProvider>();
+                    final archived = mp.archivedSongs;
+                    if (archived.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 25, thickness: 0.5),
+                          ExpansionTile(
+                            tilePadding:
+                                const EdgeInsets.symmetric(horizontal: 10),
+                            leading: Icon(Icons.archive_rounded,
+                                color: theme.primaryColor, size: 22),
+                            title: Text("Archivált zenék",
+                                style: theme.textTheme.titleMedium),
+                            subtitle: Text("${archived.length} zene elrejtve",
+                                style: theme.textTheme.bodySmall),
+                            children: archived
+                                .map((song) => ListTile(
+                                      dense: true,
+                                      title: Text(mp.getSongTitle(song),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.titleSmall),
+                                      subtitle: Text(mp.getSongArtist(song),
+                                          style: theme.textTheme.bodySmall),
+                                      trailing: TextButton.icon(
+                                        icon: Icon(Icons.restore,
+                                            size: 18,
+                                            color: theme.primaryColor),
+                                        label: Text("Visszaállítás",
+                                            style: TextStyle(
+                                                color: theme.primaryColor,
+                                                fontSize: 12)),
+                                        onPressed: () =>
+                                            mp.unarchiveSong(song.id),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 14),
+                                    ))
+                                .toList(),
+                          ),
+                        ]);
+                  }),
+                ]))));
   }
 
   ButtonStyle _segmentedButtonStyle(BuildContext context) {
     final theme = Theme.of(context);
     return ButtonStyle(
         backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.selected)) return theme.primaryColor;
-          return theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+          if (states.contains(WidgetState.selected)) {
+            return theme.primaryColor;
+          }
+          return theme.colorScheme.surfaceContainerHighest
+              .withValues(alpha: 0.5);
         }),
         foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.selected)) return theme.colorScheme.onPrimary;
+          if (states.contains(WidgetState.selected)) {
+            return theme.colorScheme.onPrimary;
+          }
           return theme.colorScheme.onSurface;
         }),
         enableFeedback: true,
         animationDuration: kAppAnimationDuration,
-        shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-        padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 10, vertical: 8))
-    );
+        shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        padding: WidgetStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 8)));
   }
 }
 
@@ -1543,7 +1767,8 @@ extension ColorHue on Color {
 
 class AnimatedBackground extends StatelessWidget {
   const AnimatedBackground({super.key});
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
     final primaryColor = themeProvider.selectedColor;
     return TweenAnimationBuilder<Color?>(
@@ -1554,10 +1779,9 @@ class AnimatedBackground extends StatelessWidget {
             tween: Tween<double>(begin: 0.0, end: 1.0),
             duration: const Duration(seconds: 40),
             builder: (context, value, _) => CustomPaint(
-                painter: BackgroundPainter(value, animatedColor ?? primaryColor),
-                child: Container()
-            )
-        );
+                painter:
+                    BackgroundPainter(value, animatedColor ?? primaryColor),
+                child: Container()));
       },
     );
   }
@@ -1567,30 +1791,46 @@ class BackgroundPainter extends CustomPainter {
   final double animationValue;
   final Color primaryColor;
   BackgroundPainter(this.animationValue, this.primaryColor);
-  @override void paint(Canvas canvas, Size size) {
+  @override
+  void paint(Canvas canvas, Size size) {
     final color1 = primaryColor;
-    final color2 = HSLColor.fromColor(primaryColor).withLightness(0.7).toColor();
+    final color2 =
+        HSLColor.fromColor(primaryColor).withLightness(0.7).toColor();
     const double blurAmount = 150.0;
-    final paint1 = Paint()..color = color1.withValues(alpha: 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
-    final paint2 = Paint()..color = color2.withValues(alpha: 0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
-    final paint3 = Paint()..color = color1.withValues(alpha: 0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint1 = Paint()
+      ..color = color1.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint2 = Paint()
+      ..color = color2.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
+    final paint3 = Paint()
+      ..color = color1.withValues(alpha: 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, blurAmount);
     final progress = animationValue * 2 * pi;
-    final position1 = Offset(size.width * 0.5 + sin(progress) * size.width * 0.4, size.height * 0.5 + cos(progress) * size.height * 0.4);
-    final position2 = Offset(size.width * 0.5 + cos(progress * 0.8) * size.width * 0.5, size.height * 0.2 + sin(progress * 0.8) * size.height * 0.3);
-    final position3 = Offset(size.width * 0.2 + sin(progress * 1.2) * size.width * 0.3, size.height * 0.8 + cos(progress * 1.2) * size.height * 0.4);
+    final position1 = Offset(
+        size.width * 0.5 + sin(progress) * size.width * 0.4,
+        size.height * 0.5 + cos(progress) * size.height * 0.4);
+    final position2 = Offset(
+        size.width * 0.5 + cos(progress * 0.8) * size.width * 0.5,
+        size.height * 0.2 + sin(progress * 0.8) * size.height * 0.3);
+    final position3 = Offset(
+        size.width * 0.2 + sin(progress * 1.2) * size.width * 0.3,
+        size.height * 0.8 + cos(progress * 1.2) * size.height * 0.4);
     canvas.drawCircle(position1, size.width * 0.5, paint1);
     canvas.drawCircle(position2, size.width * 0.4, paint2);
     canvas.drawCircle(position3, size.width * 0.3, paint3);
   }
 
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class GlassButton extends StatelessWidget {
   final VoidCallback onPressed;
   final IconData icon;
   const GlassButton({super.key, required this.onPressed, required this.icon});
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return PressableScaleWidget(
       onTap: onPressed,
@@ -1601,24 +1841,15 @@ class GlassButton extends StatelessWidget {
           blur: 20,
           alignment: Alignment.center,
           border: 1,
-          linearGradient: LinearGradient(
-              colors: [
-                theme.colorScheme.surface.withValues(alpha: 0.2),
-                theme.colorScheme.surface.withValues(alpha: 0.1)
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight
-          ),
-          borderGradient: LinearGradient(
-              colors: [
-                theme.primaryColor.withValues(alpha: 0.6),
-                theme.colorScheme.surface.withValues(alpha: 0.2)
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight
-          ),
-          child: Icon(icon, size: 24, color: theme.iconTheme.color)
-      ),
+          linearGradient: LinearGradient(colors: [
+            theme.colorScheme.surface.withValues(alpha: 0.2),
+            theme.colorScheme.surface.withValues(alpha: 0.1)
+          ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderGradient: LinearGradient(colors: [
+            theme.primaryColor.withValues(alpha: 0.6),
+            theme.colorScheme.surface.withValues(alpha: 0.2)
+          ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          child: Icon(icon, size: 24, color: theme.iconTheme.color)),
     );
   }
 }
@@ -1629,105 +1860,95 @@ class TopBar extends StatelessWidget {
   final VoidCallback onToggleMode;
   final VoidCallback onDownload;
   const TopBar({
-    super.key, 
-    required this.currentTime, 
-    required this.isMusicMode, 
+    super.key,
+    required this.currentTime,
+    required this.isMusicMode,
     required this.onToggleMode,
     required this.onDownload,
   });
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              AnimatedContainer(
-                  duration: kAppAnimationDuration,
+        child:
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          AnimatedContainer(
+              duration: kAppAnimationDuration,
+              width: 110,
+              height: 45,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: GlassmorphicContainer(
                   width: 110,
                   height: 45,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: GlassmorphicContainer(
-                      width: 110,
-                      height: 45,
-                      borderRadius: 25,
-                      blur: 20,
-                      alignment: Alignment.center,
-                      border: 1,
-                      linearGradient: LinearGradient(
-                          colors: [theme.colorScheme.surface.withValues(alpha: 0.2), theme.colorScheme.surface.withValues(alpha: 0.1)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight
-                      ),
-                      borderGradient: LinearGradient(
-                          colors: [theme.primaryColor.withValues(alpha: 0.6), theme.colorScheme.surface.withValues(alpha: 0.2)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight
-                      ),
-                      child: Text(currentTime, style: theme.textTheme.titleLarge?.copyWith(letterSpacing: 1.5))
-                  )
+                  borderRadius: 25,
+                  blur: 20,
+                  alignment: Alignment.center,
+                  border: 1,
+                  linearGradient: LinearGradient(colors: [
+                    theme.colorScheme.surface.withValues(alpha: 0.2),
+                    theme.colorScheme.surface.withValues(alpha: 0.1)
+                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  borderGradient: LinearGradient(colors: [
+                    theme.primaryColor.withValues(alpha: 0.6),
+                    theme.colorScheme.surface.withValues(alpha: 0.2)
+                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  child: Text(currentTime,
+                      style: theme.textTheme.titleLarge
+                          ?.copyWith(letterSpacing: 1.5)))),
+          Row(children: [
+            GlassButton(
+                icon: isMusicMode
+                    ? Icons.radio_rounded
+                    : Icons.library_music_rounded,
+                onPressed: onToggleMode),
+            const SizedBox(width: 12),
+            if (isMusicMode) ...[
+              GlassButton(
+                icon: Icons.download_rounded,
+                onPressed: onDownload,
               ),
-              Row(
-                  children: [
-                    GlassButton(
-                        icon: isMusicMode ? Icons.radio_rounded : Icons.library_music_rounded,
-                        onPressed: onToggleMode
-                    ),
-                    const SizedBox(width: 12),
-                    if (isMusicMode) ...[
-                      GlassButton(
-                          icon: Icons.download_rounded,
-                          onPressed: onDownload,
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                    if (!isMusicMode) ...[
-                      GlassButton(
-                          icon: Icons.queue_music_rounded,
-                          onPressed: () => showModalBottomSheet(
-                              context: context,
-                              backgroundColor: Colors.transparent,
-                              isScrollControlled: true,
-                              builder: (_) => const AllStationsSheet()
-                          )
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                    GlassButton(
-                        icon: Icons.settings_outlined,
-                        onPressed: () => showModalBottomSheet(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            isScrollControlled: true,
-                            builder: (_) => const SettingsSheet()
-                        )
-                    )
-                  ]
-              )
-            ]
-        )
-    );
+              const SizedBox(width: 12),
+            ],
+            if (!isMusicMode) ...[
+              GlassButton(
+                  icon: Icons.queue_music_rounded,
+                  onPressed: () => showModalBottomSheet(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      isScrollControlled: true,
+                      builder: (_) => const AllStationsSheet())),
+              const SizedBox(width: 12),
+            ],
+            GlassButton(
+                icon: Icons.settings_outlined,
+                onPressed: () => showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    isScrollControlled: true,
+                    builder: (_) => const SettingsSheet()))
+          ])
+        ]));
   }
 }
 
 abstract class BottomSheetStyles {
   static LinearGradient glassGradient(BuildContext context) => LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Theme.of(context).colorScheme.surface.withValues(alpha: 0.4),
-        Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
-      ]
-  );
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).colorScheme.surface.withValues(alpha: 0.4),
+            Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
+          ]);
 
-  static LinearGradient glassBorderGradient(BuildContext context) => LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Theme.of(context).primaryColor.withValues(alpha: 0.6),
-        Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
-      ]
-  );
+  static LinearGradient glassBorderGradient(BuildContext context) =>
+      LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).primaryColor.withValues(alpha: 0.6),
+            Theme.of(context).colorScheme.surface.withValues(alpha: 0.2)
+          ]);
 }

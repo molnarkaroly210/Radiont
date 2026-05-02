@@ -6,6 +6,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 /// DNS-over-HTTPS feloldó AdGuard szerverekkel.
 class DnsService {
@@ -49,7 +50,7 @@ class DnsService {
         return addresses;
       }
     } catch (e) {
-      print('[DnsService] DoH hiba ($host): $e');
+      debugPrint('[DnsService] DoH hiba ($host): $e');
     }
 
     // Fallback: rendszer DNS
@@ -60,7 +61,7 @@ class DnsService {
         return systemAddresses;
       }
     } catch (e) {
-      print('[DnsService] Rendszer DNS is sikertelen ($host): $e');
+      debugPrint('[DnsService] Rendszer DNS is sikertelen ($host): $e');
     }
 
     throw SocketException('DNS feloldás sikertelen: $host');

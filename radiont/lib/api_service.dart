@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'services/dns_service.dart';
 
 class RadioStation {
@@ -56,11 +57,11 @@ class RadioBrowserApi {
         }
         return uniqueStations.values.toList();
       } else {
-        print('API hiba: ${response.statusCode}');
+        debugPrint('API hiba: ${response.statusCode}');
         return [];
       }
     } catch (e) {
-      print('Hálózati hiba: $e');
+      debugPrint('Hálózati hiba: $e');
       return [];
     }
   }
