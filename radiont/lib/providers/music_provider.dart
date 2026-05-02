@@ -37,19 +37,20 @@ class MusicProvider extends ChangeNotifier {
   // === Albumok & Archiválás ===
   List<Album> _albums = [];
   Set<int> _archivedSongIds = {};
-  String? _selectedAlbumId; // null = Összes, "uncategorized", "most_played", vagy album id
+  String?
+      _selectedAlbumId; // null = Összes, "uncategorized", "most_played", vagy album id
 
   // === Keresés & Rendezés ===
   String _searchQuery = '';
   SortMode _sortMode = SortMode.title;
 
   // === Metaadat felülírás (cím/előadó) ===
-  Map<int, String> _titleOverrides = {};  // songId -> custom title
+  Map<int, String> _titleOverrides = {}; // songId -> custom title
   Map<int, String> _artistOverrides = {}; // songId -> custom artist
 
   // === Címkék ===
-  Map<int, List<String>> _songTags = {};  // songId -> [tag1, tag2, ...]
-  Set<String> _pinnedTags = {};           // Kitűzött címkék a chip sávban
+  Map<int, List<String>> _songTags = {}; // songId -> [tag1, tag2, ...]
+  Set<String> _pinnedTags = {}; // Kitűzött címkék a chip sávban
 
   // === Lejátszási sor ===
   List<SongModel> _queue = [];
@@ -101,11 +102,13 @@ class MusicProvider extends ChangeNotifier {
   bool get hasPermission => _hasPermission;
   List<SongModel> get songs => _songs;
   int get currentIndex => _hasStartedPlaying ? _currentIndex : -1;
-  int? get currentPlayingSongId => _hasStartedPlaying ? _currentPlayingSongId : null;
+  int? get currentPlayingSongId =>
+      _hasStartedPlaying ? _currentPlayingSongId : null;
   SongModel? get currentSong {
     if (!_hasStartedPlaying || _currentPlayingSongId == null) return null;
     return _songs.where((s) => s.id == _currentPlayingSongId).firstOrNull;
   }
+
   bool get hasStartedPlaying => _hasStartedPlaying;
   bool get isShuffleModeEnabled => _isShuffleModeEnabled;
   LoopMode get loopMode => _loopMode;
@@ -124,14 +127,17 @@ class MusicProvider extends ChangeNotifier {
 
   // Metaadat felülírás
   String getSongTitle(SongModel song) => _titleOverrides[song.id] ?? song.title;
-  String getSongArtist(SongModel song) => _artistOverrides[song.id] ?? song.artist ?? "Ismeretlen Előadó";
+  String getSongArtist(SongModel song) =>
+      _artistOverrides[song.id] ?? song.artist ?? "Ismeretlen Előadó";
 
   // Címkék
   List<String> getSongTags(int songId) => _songTags[songId] ?? [];
   Set<String> get pinnedTags => _pinnedTags;
   Set<String> get allTags {
     final tags = <String>{};
-    for (final t in _songTags.values) { tags.addAll(t); }
+    for (final t in _songTags.values) {
+      tags.addAll(t);
+    }
     return tags;
   }
 
@@ -160,7 +166,8 @@ class MusicProvider extends ChangeNotifier {
 
   /// Szűrt + rendezett zenelista (ez jelenik meg a UI-ban)
   List<SongModel> get displayedSongs {
-    List<SongModel> result = _songs.where((s) => !_archivedSongIds.contains(s.id)).toList();
+    List<SongModel> result =
+        _songs.where((s) => !_archivedSongIds.contains(s.id)).toList();
 
     // Album szűrés
     if (_selectedAlbumId == 'uncategorized') {
@@ -170,10 +177,12 @@ class MusicProvider extends ChangeNotifier {
       // Top 25 leggyakrabban hallgatott
       result.sort((a, b) => (getPlayCount(b.id)).compareTo(getPlayCount(a.id)));
       result = result.where((s) => getPlayCount(s.id) > 0).take(25).toList();
-    } else if (_selectedAlbumId != null && _selectedAlbumId!.startsWith('tag:')) {
+    } else if (_selectedAlbumId != null &&
+        _selectedAlbumId!.startsWith('tag:')) {
       // Címke szűrés
       final tag = _selectedAlbumId!.substring(4);
-      result = result.where((s) => _songTags[s.id]?.contains(tag) ?? false).toList();
+      result =
+          result.where((s) => _songTags[s.id]?.contains(tag) ?? false).toList();
     } else if (_selectedAlbumId != null) {
       final album = _albums.where((a) => a.id == _selectedAlbumId).firstOrNull;
       if (album != null) {
@@ -204,8 +213,10 @@ class MusicProvider extends ChangeNotifier {
 
   /// Top 25 leggyakrabban hallgatott
   List<SongModel> get mostPlayedSongs {
-    final nonArchived = _songs.where((s) => !_archivedSongIds.contains(s.id)).toList();
-    nonArchived.sort((a, b) => getPlayCount(b.id).compareTo(getPlayCount(a.id)));
+    final nonArchived =
+        _songs.where((s) => !_archivedSongIds.contains(s.id)).toList();
+    nonArchived
+        .sort((a, b) => getPlayCount(b.id).compareTo(getPlayCount(a.id)));
     return nonArchived.where((s) => getPlayCount(s.id) > 0).take(25).toList();
   }
 
@@ -258,7 +269,10 @@ class MusicProvider extends ChangeNotifier {
     // Archivált zenék
     final archivedJson = prefs.getStringList('music_archived');
     if (archivedJson != null) {
-      _archivedSongIds = archivedJson.map((e) => int.tryParse(e) ?? 0).where((e) => e > 0).toSet();
+      _archivedSongIds = archivedJson
+          .map((e) => int.tryParse(e) ?? 0)
+          .where((e) => e > 0)
+          .toSet();
     }
 
     // Hallgatási számlálók
@@ -299,13 +313,15 @@ class MusicProvider extends ChangeNotifier {
     if (tagsJson != null && tagsJson.isNotEmpty) {
       try {
         final d = jsonDecode(tagsJson) as Map<String, dynamic>;
-        _songTags = d.map((k, v) => MapEntry(int.parse(k), (v as List).cast<String>()));
+        _songTags =
+            d.map((k, v) => MapEntry(int.parse(k), (v as List).cast<String>()));
       } catch (_) {}
     }
     final pinned = prefs.getStringList('music_pinned_tags');
     if (pinned != null) _pinnedTags = pinned.toSet();
 
-    _listSwipeRightAction = prefs.getString('list_swipe_right') ?? 'add_to_queue';
+    _listSwipeRightAction =
+        prefs.getString('list_swipe_right') ?? 'add_to_queue';
     _listSwipeLeftAction = prefs.getString('list_swipe_left') ?? 'archive';
 
     // Equalizer beállítások betöltése
@@ -320,7 +336,8 @@ class MusicProvider extends ChangeNotifier {
       }
     }
 
-    _isLoudnessEnhancerEnabled = prefs.getBool('music_loudness_enhancer') ?? false;
+    _isLoudnessEnhancerEnabled =
+        prefs.getBool('music_loudness_enhancer') ?? false;
     _bassBoostLevel = prefs.getDouble('music_bass_boost') ?? 0.0;
 
     // Alkalmazzuk az effekteket
@@ -335,24 +352,29 @@ class MusicProvider extends ChangeNotifier {
   }
 
   Future<void> _saveArchive() async {
-    await prefs.setStringList('music_archived', _archivedSongIds.map((e) => e.toString()).toList());
+    await prefs.setStringList(
+        'music_archived', _archivedSongIds.map((e) => e.toString()).toList());
   }
 
   Future<void> _savePlayCounts() async {
-    final encoded = jsonEncode(_playCounts.map((k, v) => MapEntry(k.toString(), v)));
+    final encoded =
+        jsonEncode(_playCounts.map((k, v) => MapEntry(k.toString(), v)));
     await prefs.setString('music_play_counts', encoded);
   }
 
   Future<void> _saveTitleOverrides() async {
-    await prefs.setString('music_title_overrides', jsonEncode(_titleOverrides.map((k, v) => MapEntry(k.toString(), v))));
+    await prefs.setString('music_title_overrides',
+        jsonEncode(_titleOverrides.map((k, v) => MapEntry(k.toString(), v))));
   }
 
   Future<void> _saveArtistOverrides() async {
-    await prefs.setString('music_artist_overrides', jsonEncode(_artistOverrides.map((k, v) => MapEntry(k.toString(), v))));
+    await prefs.setString('music_artist_overrides',
+        jsonEncode(_artistOverrides.map((k, v) => MapEntry(k.toString(), v))));
   }
 
   Future<void> _saveSongTags() async {
-    await prefs.setString('music_song_tags', jsonEncode(_songTags.map((k, v) => MapEntry(k.toString(), v))));
+    await prefs.setString('music_song_tags',
+        jsonEncode(_songTags.map((k, v) => MapEntry(k.toString(), v))));
   }
 
   Future<void> _savePinnedTags() async {
@@ -380,7 +402,9 @@ class MusicProvider extends ChangeNotifier {
       final storageStatus = await Permission.storage.status;
       final manageStatus = await Permission.manageExternalStorage.status;
 
-      if (audioStatus.isGranted || storageStatus.isGranted || manageStatus.isGranted) {
+      if (audioStatus.isGranted ||
+          storageStatus.isGranted ||
+          manageStatus.isGranted) {
         _hasPermission = true;
         await fetchSongs();
       } else {
@@ -408,8 +432,9 @@ class MusicProvider extends ChangeNotifier {
       if (await Permission.manageExternalStorage.isDenied) {
         await Permission.manageExternalStorage.request();
       }
-      
-      _hasPermission = status.isGranted || await Permission.manageExternalStorage.isGranted;
+
+      _hasPermission =
+          status.isGranted || await Permission.manageExternalStorage.isGranted;
       if (_hasPermission) {
         await fetchSongs();
       } else {
@@ -469,10 +494,13 @@ class MusicProvider extends ChangeNotifier {
   List<SongModel> _applySorting(List<SongModel> songs) {
     switch (_sortMode) {
       case SortMode.title:
-        songs.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        songs.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
         break;
       case SortMode.artist:
-        songs.sort((a, b) => (a.artist ?? '').toLowerCase().compareTo((b.artist ?? '').toLowerCase()));
+        songs.sort((a, b) => (a.artist ?? '')
+            .toLowerCase()
+            .compareTo((b.artist ?? '').toLowerCase()));
         break;
       case SortMode.dateAdded:
         songs.sort((a, b) => (b.dateAdded ?? 0).compareTo(a.dateAdded ?? 0));
@@ -500,10 +528,11 @@ class MusicProvider extends ChangeNotifier {
       }
 
       bool success = false;
-      
+
       // 1. Próbáljuk meg a natív MediaStore törlést (Android 10+ esetén ez a biztos)
       try {
-        final bool? result = await _platform.invokeMethod('deleteSong', {'id': song.id.toString()});
+        final bool? result = await _platform
+            .invokeMethod('deleteSong', {'id': song.id.toString()});
         success = result ?? false;
       } catch (e) {
         debugPrint("Natív törlési hiba: $e");
@@ -722,7 +751,8 @@ class MusicProvider extends ChangeNotifier {
   /// Címkével rendelkező zenék szűrése
   List<SongModel> songsWithTag(String tag) {
     return _songs.where((s) {
-      return !_archivedSongIds.contains(s.id) && (_songTags[s.id]?.contains(tag) ?? false);
+      return !_archivedSongIds.contains(s.id) &&
+          (_songTags[s.id]?.contains(tag) ?? false);
     }).toList();
   }
 
@@ -739,7 +769,8 @@ class MusicProvider extends ChangeNotifier {
     // Percenként frissítjük a hátralévő időt
     _sleepTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_sleepTimerRemaining != null) {
-        _sleepTimerRemaining = _sleepTimerRemaining! - const Duration(seconds: 1);
+        _sleepTimerRemaining =
+            _sleepTimerRemaining! - const Duration(seconds: 1);
         if (_sleepTimerRemaining!.inSeconds <= 0) {
           // Idő letelt
           audioPlayer.stop();
@@ -849,7 +880,8 @@ class MusicProvider extends ChangeNotifier {
     _queue.removeWhere((s) => s.id == song.id);
 
     if (_currentPlayingSongId != null) {
-      final currentIdx = _queue.indexWhere((s) => s.id == _currentPlayingSongId);
+      final currentIdx =
+          _queue.indexWhere((s) => s.id == _currentPlayingSongId);
       if (currentIdx >= 0) {
         _queue.insert(currentIdx + 1, song);
       } else {
@@ -889,7 +921,8 @@ class MusicProvider extends ChangeNotifier {
     if (displayed.isEmpty) return;
 
     if (_currentPlayingSongId != null) {
-      int currentIdx = displayed.indexWhere((s) => s.id == _currentPlayingSongId);
+      int currentIdx =
+          displayed.indexWhere((s) => s.id == _currentPlayingSongId);
       if (currentIdx != -1) {
         int nextIdx = (currentIdx + 1) % displayed.length;
         playSong(nextIdx);
@@ -915,7 +948,8 @@ class MusicProvider extends ChangeNotifier {
     if (displayed.isEmpty) return;
 
     if (_currentPlayingSongId != null) {
-      int currentIdx = displayed.indexWhere((s) => s.id == _currentPlayingSongId);
+      int currentIdx =
+          displayed.indexWhere((s) => s.id == _currentPlayingSongId);
       if (currentIdx != -1) {
         int prevIdx = currentIdx - 1;
         if (prevIdx < 0) prevIdx = displayed.length - 1;
@@ -1024,7 +1058,8 @@ class MusicProvider extends ChangeNotifier {
       try {
         await _loudnessEnhancer.setEnabled(_isLoudnessEnhancerEnabled);
         if (_isLoudnessEnhancerEnabled) {
-          await _loudnessEnhancer.setTargetGain(0.5); // kb 500mB erősítés, tisztább hang
+          await _loudnessEnhancer
+              .setTargetGain(0.5); // kb 500mB erősítés, tisztább hang
         }
       } catch (e) {
         if (kDebugMode) print("LoudnessEnhancer hiba: $e");
@@ -1051,7 +1086,7 @@ class MusicProvider extends ChangeNotifier {
         final params = await _equalizer.parameters;
         if (index < params.bands.length) {
           // Eltávolítottuk az 1.5x szorzót a pontosabb és tisztább szabályozás érdekében, így nem torzít
-          double targetGain = gain; 
+          double targetGain = gain;
 
           // Finomított basszus rásegítés, hogy ne okozzon clippinget (torzítást)
           if (index == 0) targetGain += (_bassBoostLevel * 6.0); // max +6dB
@@ -1060,7 +1095,7 @@ class MusicProvider extends ChangeNotifier {
           // Szigorú korlátozás a hardveres határok közé
           if (targetGain < params.minDecibels) targetGain = params.minDecibels;
           if (targetGain > params.maxDecibels) targetGain = params.maxDecibels;
-          
+
           await params.bands[index].setGain(targetGain);
         }
       } catch (e) {
@@ -1125,15 +1160,17 @@ class MusicProvider extends ChangeNotifier {
     try {
       onProgress?.call(0, "Adatok lekérése...");
       var video = await yt.videos.get(videoId).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw Exception("Időtúllépés az adatok lekérésekor."),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () =>
+                throw Exception("Időtúllépés az adatok lekérésekor."),
+          );
 
       onProgress?.call(0, "Adatfolyam keresése...");
       var manifest = await yt.videos.streamsClient.getManifest(videoId).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception("Időtúllépés az adatfolyam keresésekor."),
-      );
+            const Duration(seconds: 15),
+            onTimeout: () =>
+                throw Exception("Időtúllépés az adatfolyam keresésekor."),
+          );
 
       var audioStreamInfo = manifest.audioOnly.withHighestBitrate();
       var audioStream = yt.videos.streamsClient.get(audioStreamInfo);
@@ -1202,7 +1239,6 @@ class MusicProvider extends ChangeNotifier {
       );
 
       await completer.future;
-
     } catch (e) {
       onError?.call(e.toString().replaceAll('Exception: ', ''));
     } finally {

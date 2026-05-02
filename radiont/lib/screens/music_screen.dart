@@ -127,6 +127,9 @@ class _MusicScreenState extends State<MusicScreen> {
             const SizedBox(width: 8),
             // Rendezés popup
             PopupMenuButton<SortMode>(
+              color: Color.alphaBlend(
+                  theme.colorScheme.surface.withValues(alpha: 0.98),
+                  Colors.black),
               icon: Icon(Icons.sort,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
               shape: RoundedRectangleBorder(

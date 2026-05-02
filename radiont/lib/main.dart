@@ -30,7 +30,6 @@ const Duration kAppAnimationDuration = Duration(milliseconds: 500);
 // PROVIDEREK
 // =================================================================
 
-
 class RadioProvider extends ChangeNotifier {
   final SharedPreferences prefs;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -118,7 +117,6 @@ class RadioProvider extends ChangeNotifier {
   Future<void> _loadInitialData() async {
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 1500));
     _stations = await RadioBrowserApi().fetchStations();
     _loadSettings();
     _isLoading = false;
@@ -209,6 +207,8 @@ class RadioProvider extends ChangeNotifier {
         initialIndex: _currentIndex,
         initialPosition: Duration.zero,
       );
+      // Mindig lehessen léptetni az értesítési sávban
+      await _audioPlayer.setLoopMode(LoopMode.all);
       if (play) {
         _audioPlayer.play();
       }
@@ -380,6 +380,10 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    // Beállítjuk a kezdőképernyőt a beállítások alapján
+    final themeProvider = context.read<ThemeProvider>();
+    _isMusicMode = themeProvider.startScreen == 1;
+
     _updateTime();
     _timer =
         Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
@@ -485,7 +489,7 @@ class _MainScreenState extends State<MainScreen> {
               transitionBuilder: (child, animation) => FadeTransition(
                   opacity: animation,
                   child: ScaleTransition(scale: animation, child: child)),
-              child: radioProvider.isLoading
+              child: (radioProvider.isLoading && !_isMusicMode)
                   ? Center(
                       key: const ValueKey('loader'),
                       child: LoadingAnimationWidget.staggeredDotsWave(
@@ -607,7 +611,6 @@ class _MainScreenState extends State<MainScreen> {
 // =================================================================
 // EGYÉB WIDGETEK (Változatlan)
 // =================================================================
-
 
 class RadioCard extends StatelessWidget {
   final RadioStation station;
@@ -1216,6 +1219,27 @@ class SettingsSheet extends StatelessWidget {
                       },
                       onSelectionChanged: (s) =>
                           themeProvider.setThemeMode(s.first),
+                      style: _segmentedButtonStyle(context)),
+                  const SizedBox(height: 20),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child: Text("Induló képernyő",
+                          style: theme.textTheme.titleMedium)),
+                  const SizedBox(height: 10),
+                  SegmentedButton<int>(
+                      segments: const <ButtonSegment<int>>[
+                        ButtonSegment<int>(
+                            value: 0,
+                            label: Text('Rádió'),
+                            icon: Icon(Icons.radio_rounded)),
+                        ButtonSegment<int>(
+                            value: 1,
+                            label: Text('Zene'),
+                            icon: Icon(Icons.music_note_rounded)),
+                      ],
+                      selected: {themeProvider.startScreen},
+                      onSelectionChanged: (s) =>
+                          themeProvider.setStartScreen(s.first),
                       style: _segmentedButtonStyle(context)),
                   const SizedBox(height: 10),
                   SwitchListTile(

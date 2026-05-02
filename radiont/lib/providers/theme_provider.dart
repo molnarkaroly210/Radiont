@@ -14,6 +14,7 @@ class ThemeProvider extends ChangeNotifier {
   bool _backgroundPlayback = false;
   bool _playButtonBlack = false;
   String _dnsProvider = DnsService.adguardDefault;
+  int _startScreen = 0; // 0: Radio, 1: Music
 
   ThemeMode get themeMode => _themeMode;
   Color get selectedColor => _selectedColor;
@@ -22,6 +23,7 @@ class ThemeProvider extends ChangeNotifier {
   bool get backgroundPlayback => _backgroundPlayback;
   bool get playButtonBlack => _playButtonBlack;
   String get dnsProvider => _dnsProvider;
+  int get startScreen => _startScreen;
 
   ThemeProvider(this.prefs) {
     _loadSettings();
@@ -41,6 +43,7 @@ class ThemeProvider extends ChangeNotifier {
     _backgroundPlayback = prefs.getBool('backgroundPlayback') ?? false;
     _playButtonBlack = prefs.getBool('playButtonBlack') ?? false;
     _dnsProvider = prefs.getString('dnsProvider') ?? DnsService.adguardDefault;
+    _startScreen = prefs.getInt('startScreen') ?? 0;
     DnsService.setProvider(_dnsProvider);
     _applyFullScreen();
     notifyListeners();
@@ -96,6 +99,12 @@ class ThemeProvider extends ChangeNotifier {
     _dnsProvider = dohUrl;
     DnsService.setProvider(dohUrl);
     await prefs.setString('dnsProvider', dohUrl);
+    notifyListeners();
+  }
+
+  Future<void> setStartScreen(int value) async {
+    _startScreen = value;
+    await prefs.setInt('startScreen', value);
     notifyListeners();
   }
 
