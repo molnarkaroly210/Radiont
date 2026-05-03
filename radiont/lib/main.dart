@@ -20,6 +20,7 @@ import 'providers/music_provider.dart';
 import 'screens/music_screen.dart';
 import 'screens/download_webview_screen.dart';
 import 'services/dns_service.dart';
+import 'services/version_service.dart';
 import 'providers/theme_provider.dart';
 import 'widgets/pressable_scale_widget.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -387,7 +388,13 @@ class _MainScreenState extends State<MainScreen> {
     _updateTime();
     _timer =
         Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
+
+    // Verzióellenőrzés indításkor
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      VersionService.checkForUpdates(context);
+    });
   }
+
 
   void _updateTime() {
     if (mounted) {
