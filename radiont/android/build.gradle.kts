@@ -17,12 +17,18 @@ subprojects {
         if (project.hasProperty("android")) {
             val android = project.extensions.getByName("android")
             
-            // Fix namespace for on_audio_query_android
+            // Fix namespace for all libraries (needed for AGP 8+)
             if (android is com.android.build.gradle.LibraryExtension) {
-                if (android.namespace == null && project.name == "on_audio_query_android") {
-                    android.namespace = "com.lucasjosino.on_audio_query"
+                if (android.namespace == null) {
+                    android.namespace = when (project.name) {
+                        "on_audio_query_android" -> "com.lucasjosino.on_audio_query"
+                        "install_plugin_v2" -> "com.youxiachai.installplugin"
+                        else -> project.group.toString().trim()
+                    }
                 }
             }
+
+
 
             // Force Java compatibility to 11
             if (android is com.android.build.gradle.BaseExtension) {

@@ -1,28 +1,57 @@
 package com.example.radiont
 
 import android.content.ContentUris
+import android.content.Intent
 import android.provider.MediaStore
-import io.flutter.embedding.android.FlutterActivity
+import androidx.core.content.FileProvider
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
-class MainActivity: FlutterActivity() {
+class MainActivity: AudioServiceActivity() {
+
     private val CHANNEL = "com.example.radiont/media_manager"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "deleteSong") {
-                val idStr = call.argument<String>("id")
-                val id = idStr?.toLongOrNull()
-                if (id != null) {
-                    val deleted = deleteMedia(id)
-                    result.success(deleted)
-                } else {
-                    result.error("INVALID_ID", "Song ID is null or invalid: $idStr", null)
+            when (call.method) {
+                "deleteSong" -> {
+                    val idStr = call.argument<String>("id")
+                    val id = idStr?.toLongOrNull()
+                    if (id != null) {
+                        val deleted = deleteMedia(id)
+                        result.success(deleted)
+                    } else {
+                        result.error("INVALID_ID", "Song ID is null or invalid: $idStr", null)
+                    }
                 }
-            } else {
-                result.notImplemented()
+                "installApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        try {
+                            val file = File(filePath)
+                            val uri = FileProvider.getUriForFile(
+                                this,
+                                "com.example.radiont.fileprovider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("INSTALL_ERROR", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_PATH", "File path is null", null)
+                    }
+                }
+                else -> result.notImplemented()
             }
         }
     }
@@ -33,8 +62,6 @@ class MainActivity: FlutterActivity() {
             val deletedRows = contentResolver.delete(uri, null, null)
             deletedRows > 0
         } catch (e: Exception) {
-            // Android 10+ esetén ha nincs MANAGE_EXTERNAL_STORAGE, itt RecoverableSecurityException jöhetne,
-            // de mivel az alkalmazás kéri a speciális jogot, a sima delete-nek működnie kell.
             false
         }
     }
