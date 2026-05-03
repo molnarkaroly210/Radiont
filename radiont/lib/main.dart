@@ -1885,7 +1885,7 @@ class GlassButton extends StatelessWidget {
   }
 }
 
-class TopBar extends StatelessWidget {
+class TopBar extends StatefulWidget {
   final String currentTime;
   final bool isMusicMode;
   final VoidCallback onToggleMode;
@@ -1897,6 +1897,46 @@ class TopBar extends StatelessWidget {
     required this.onToggleMode,
     required this.onDownload,
   });
+
+  @override
+  State<TopBar> createState() => _TopBarState();
+}
+
+class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
+  bool _showUpdate = false;
+  Timer? _toggleTimer;
+  late AnimationController _blinkController;
+
+  @override
+  void initState() {
+    super.initState();
+    _blinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+
+    // 15 másodpercenként váltás: óra <-> update jelzés
+    _toggleTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && VersionService.updateAvailable) {
+        setState(() => _showUpdate = !_showUpdate);
+        // 3 másodpercig mutatjuk az update jelzést, utána vissza az órára
+        if (_showUpdate) {
+          Future.delayed(const Duration(seconds: 10), () {
+
+            if (mounted) setState(() => _showUpdate = false);
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _toggleTimer?.cancel();
+    _blinkController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1904,46 +1944,76 @@ class TopBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         child:
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          AnimatedContainer(
-              duration: kAppAnimationDuration,
-              width: 110,
-              height: 45,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(25),
-              ),
-              child: GlassmorphicContainer(
-                  width: 110,
-                  height: 45,
-                  borderRadius: 25,
-                  blur: 20,
-                  alignment: Alignment.center,
-                  border: 1,
-                  linearGradient: LinearGradient(colors: [
-                    theme.colorScheme.surface.withValues(alpha: 0.2),
-                    theme.colorScheme.surface.withValues(alpha: 0.1)
-                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                  borderGradient: LinearGradient(colors: [
-                    theme.primaryColor.withValues(alpha: 0.6),
-                    theme.colorScheme.surface.withValues(alpha: 0.2)
-                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                  child: Text(currentTime,
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(letterSpacing: 1.5)))),
+          GestureDetector(
+            onTap: _showUpdate ? () => VersionService.showUpdate(context) : null,
+            child: AnimatedContainer(
+                duration: kAppAnimationDuration,
+                width: 110,
+                height: 45,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: GlassmorphicContainer(
+                    width: 110,
+                    height: 45,
+                    borderRadius: 25,
+                    blur: 20,
+                    alignment: Alignment.center,
+                    border: 1,
+                    linearGradient: LinearGradient(colors: [
+                      _showUpdate
+                          ? Colors.red.withValues(alpha: 0.3)
+                          : theme.colorScheme.surface.withValues(alpha: 0.2),
+                      _showUpdate
+                          ? Colors.red.withValues(alpha: 0.15)
+                          : theme.colorScheme.surface.withValues(alpha: 0.1)
+                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderGradient: LinearGradient(colors: [
+                      _showUpdate
+                          ? Colors.red.withValues(alpha: 0.8)
+                          : theme.primaryColor.withValues(alpha: 0.6),
+                      theme.colorScheme.surface.withValues(alpha: 0.2)
+                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _showUpdate
+                          ? FadeTransition(
+                              key: const ValueKey('update'),
+                              opacity: _blinkController,
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.warning_rounded, color: Colors.red, size: 18),
+                                  SizedBox(width: 4),
+                                  Text("UPDATE",
+                                      style: TextStyle(
+                                          color: Colors.red,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1.2)),
+                                ],
+                              ),
+                            )
+                          : Text(widget.currentTime,
+                              key: const ValueKey('clock'),
+                              style: theme.textTheme.titleLarge
+                                  ?.copyWith(letterSpacing: 1.5)),
+                    )))),
           Row(children: [
             GlassButton(
-                icon: isMusicMode
+                icon: widget.isMusicMode
                     ? Icons.radio_rounded
                     : Icons.library_music_rounded,
-                onPressed: onToggleMode),
+                onPressed: widget.onToggleMode),
             const SizedBox(width: 12),
-            if (isMusicMode) ...[
+            if (widget.isMusicMode) ...[
               GlassButton(
                 icon: Icons.download_rounded,
-                onPressed: onDownload,
+                onPressed: widget.onDownload,
               ),
               const SizedBox(width: 12),
             ],
-            if (!isMusicMode) ...[
+            if (!widget.isMusicMode) ...[
               GlassButton(
                   icon: Icons.queue_music_rounded,
                   onPressed: () => showModalBottomSheet(
@@ -1964,6 +2034,7 @@ class TopBar extends StatelessWidget {
         ]));
   }
 }
+
 
 abstract class BottomSheetStyles {
   static LinearGradient glassGradient(BuildContext context) => LinearGradient(

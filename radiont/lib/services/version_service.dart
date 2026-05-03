@@ -15,6 +15,16 @@ class VersionService {
   static const String githubApiUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest";
   static const _platform = MethodChannel('com.example.radiont/media_manager');
 
+  // Tárolt frissítési adatok (a TopBar használja)
+  static bool updateAvailable = false;
+  static String _currentVersion = '';
+  static String _latestVersion = '';
+  static String? _apkUrl;
+  static String _fallbackUrl = '';
+  static String _releaseNotes = '';
+  static DateTime _publishedAt = DateTime.now();
+
+
   static Future<void> checkForUpdates(BuildContext context) async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -42,6 +52,15 @@ class VersionService {
         final publishedAt = DateTime.parse(data['published_at']);
 
         if (_isNewer(latestVersion, currentVersion)) {
+          // Eltároljuk az adatokat
+          updateAvailable = true;
+          _currentVersion = currentVersion;
+          _latestVersion = latestVersion;
+          _apkUrl = apkDownloadUrl;
+          _fallbackUrl = fallbackUrl;
+          _releaseNotes = releaseNotes;
+          _publishedAt = publishedAt;
+
           if (context.mounted) {
             _showUpdateDialog(context, currentVersion, latestVersion, apkDownloadUrl, fallbackUrl, releaseNotes, publishedAt);
           }
@@ -51,6 +70,14 @@ class VersionService {
       debugPrint("Verzióellenőrzési hiba: $e");
     }
   }
+
+  /// Publikus metódus: a TopBar-ból hívható, megnyitja a frissítési ablakot
+  static void showUpdate(BuildContext context) {
+    if (updateAvailable) {
+      _showUpdateDialog(context, _currentVersion, _latestVersion, _apkUrl, _fallbackUrl, _releaseNotes, _publishedAt);
+    }
+  }
+
 
   static String _getTimeAgo(DateTime date) {
     final diff = DateTime.now().difference(date);
@@ -168,21 +195,21 @@ class VersionService {
                       );
                       if (success) {
                         confettiController.play();
-                        await Future.delayed(const Duration(seconds: 2));
+                        await Future.delayed(const Duration(milliseconds: 800));
                       }
+                      // Azonnal bezárjuk az ablakot, hogy ne akadjon meg
+                      // amikor az Android átirányít a Beállításokba
                       if (context.mounted) {
                         confettiController.dispose();
                         Navigator.pop(context);
                       }
                     } else {
-                      // Fallback: böngésző megnyitása
+                      confettiController.dispose();
+                      if (context.mounted) Navigator.pop(context);
                       await launchUrl(Uri.parse(fallbackUrl), mode: LaunchMode.externalApplication);
-                      if (context.mounted) {
-                        confettiController.dispose();
-                        Navigator.pop(context);
-                      }
                     }
                   },
+
                   child: Text(statusText),
                 ),
               ],
