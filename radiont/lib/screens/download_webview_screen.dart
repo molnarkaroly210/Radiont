@@ -67,6 +67,9 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
         String status = "Kapcsolódás...";
         bool started = false;
 
+        final currentIdx = (_playlistIndex + 1);
+        final totalCount = widget.playlistUrls?.length ?? 1;
+
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             if (!started) {
@@ -181,6 +184,15 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                           color: dlProgress >= 1.0 ? Colors.green : theme.primaryColor,
                           size: 40,
                         ),
+                        const SizedBox(height: 10),
+                        if (widget.playlistUrls != null)
+                          Text(
+                            "Letöltés: $currentIdx / $totalCount",
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: theme.primaryColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         const SizedBox(height: 15),
                         Text(
                           fileName,
@@ -455,16 +467,23 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                   var checkCount = 0;
                   var checkDownloadBtn = setInterval(function() {
                     checkCount++;
+                    
+                    // Különféle variációk a letöltés gombra y2mate-en
                     var dlBtn = document.querySelector('a.btn-download') || 
+                                document.querySelector('a[href*="download"]') ||
                                 document.querySelector('.btn-success') ||
-                                document.querySelector('button.btn-success');
+                                document.querySelector('button.btn-success') ||
+                                document.querySelector('#process-result a');
                     
                     if (dlBtn && dlBtn.offsetParent !== null) {
-                      dlBtn.click();
-                      clearInterval(checkDownloadBtn);
+                      // Ha látható és van szövege, kattintsunk
+                      if (dlBtn.innerText.toLowerCase().includes('download') || dlBtn.href.includes('download')) {
+                        dlBtn.click();
+                        clearInterval(checkDownloadBtn);
+                      }
                     }
                     
-                    // 60 másodperc után feladjuk, ha nem jön elő
+                    // 60 másodperc után feladjuk
                     if (checkCount > 30) clearInterval(checkDownloadBtn);
                   }, 2000);
                 })();
