@@ -1944,61 +1944,113 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         child:
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          GestureDetector(
-            onTap: _showUpdate ? () => VersionService.showUpdate(context) : null,
-            child: AnimatedContainer(
-                duration: kAppAnimationDuration,
-                width: 110,
-                height: 45,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(25),
-                ),
-                child: GlassmorphicContainer(
+          ListenableBuilder(
+            listenable: Listenable.merge([
+              VersionService.isDownloading,
+              VersionService.isDownloadReady,
+              VersionService.downloadProgress,
+            ]),
+            builder: (context, _) {
+              final bool isDownloading = VersionService.isDownloading.value;
+              final bool isDownloadReady = VersionService.isDownloadReady.value;
+              final double progress = VersionService.downloadProgress.value;
+
+              return GestureDetector(
+                onTap: (_showUpdate || isDownloading || isDownloadReady)
+                    ? () {
+                        if (isDownloadReady) {
+                          VersionService.installDownloadedApk();
+                        } else {
+                          VersionService.showUpdate(context);
+                        }
+                      }
+                    : null,
+                child: AnimatedContainer(
+                    duration: kAppAnimationDuration,
                     width: 110,
                     height: 45,
-                    borderRadius: 25,
-                    blur: 20,
-                    alignment: Alignment.center,
-                    border: 1,
-                    linearGradient: LinearGradient(colors: [
-                      _showUpdate
-                          ? Colors.red.withValues(alpha: 0.3)
-                          : theme.colorScheme.surface.withValues(alpha: 0.2),
-                      _showUpdate
-                          ? Colors.red.withValues(alpha: 0.15)
-                          : theme.colorScheme.surface.withValues(alpha: 0.1)
-                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderGradient: LinearGradient(colors: [
-                      _showUpdate
-                          ? Colors.red.withValues(alpha: 0.8)
-                          : theme.primaryColor.withValues(alpha: 0.6),
-                      theme.colorScheme.surface.withValues(alpha: 0.2)
-                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: _showUpdate
-                          ? FadeTransition(
-                              key: const ValueKey('update'),
-                              opacity: _blinkController,
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.warning_rounded, color: Colors.red, size: 18),
-                                  SizedBox(width: 4),
-                                  Text("UPDATE",
-                                      style: TextStyle(
-                                          color: Colors.red,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 1.2)),
-                                ],
-                              ),
-                            )
-                          : Text(widget.currentTime,
-                              key: const ValueKey('clock'),
-                              style: theme.textTheme.titleLarge
-                                  ?.copyWith(letterSpacing: 1.5)),
-                    )))),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: GlassmorphicContainer(
+                        width: 110,
+                        height: 45,
+                        borderRadius: 25,
+                        blur: 20,
+                        alignment: Alignment.center,
+                        border: 1,
+                        linearGradient: LinearGradient(colors: [
+                          isDownloadReady
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : (isDownloading
+                                  ? Colors.blue.withValues(alpha: 0.3)
+                                  : (_showUpdate
+                                      ? Colors.red.withValues(alpha: 0.3)
+                                      : theme.colorScheme.surface.withValues(alpha: 0.2))),
+                          isDownloadReady
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : (isDownloading
+                                  ? Colors.blue.withValues(alpha: 0.15)
+                                  : (_showUpdate
+                                      ? Colors.red.withValues(alpha: 0.15)
+                                      : theme.colorScheme.surface.withValues(alpha: 0.1)))
+                        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                        borderGradient: LinearGradient(colors: [
+                          isDownloadReady
+                              ? Colors.green.withValues(alpha: 0.8)
+                              : (isDownloading
+                                  ? Colors.blue.withValues(alpha: 0.8)
+                                  : (_showUpdate
+                                      ? Colors.red.withValues(alpha: 0.8)
+                                      : theme.primaryColor.withValues(alpha: 0.6))),
+                          theme.colorScheme.surface.withValues(alpha: 0.2)
+                        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: (_showUpdate || isDownloading || isDownloadReady)
+                              ? FadeTransition(
+                                  key: const ValueKey('update'),
+                                  opacity: _blinkController,
+                                  child: () {
+                                    // Szín és ikon meghatározása az állapot alapján
+                                    Color statusColor = Colors.red;
+                                    IconData statusIcon = Icons.warning_rounded;
+                                    String statusText = "UPDATE";
+
+                                    if (isDownloadReady) {
+                                      statusColor = Colors.green;
+                                      statusIcon = Icons.check_circle_outline_rounded;
+                                      statusText = "INSTALL";
+                                    } else if (isDownloading) {
+                                      statusColor = Colors.blue;
+                                      statusIcon = Icons.downloading_rounded;
+                                      statusText = "${(progress * 100).toInt()}%";
+                                    }
+
+                                    return Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(statusIcon, color: statusColor, size: 18),
+                                        const SizedBox(width: 4),
+                                        Text(statusText,
+                                            style: TextStyle(
+                                                color: statusColor,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 1.2)),
+                                      ],
+                                    );
+                                  }(),
+                                )
+                              : Text(widget.currentTime,
+                                  key: const ValueKey('clock'),
+                                  style: theme.textTheme.titleLarge
+                                      ?.copyWith(letterSpacing: 1.5)),
+                        ))),
+              );
+            },
+          ),
+
           Row(children: [
             GlassButton(
                 icon: widget.isMusicMode

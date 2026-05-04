@@ -25,6 +25,12 @@ class VersionService {
   static String _releaseNotes = '';
   static DateTime _publishedAt = DateTime.now();
 
+  // Háttérben történő letöltés adatai
+  static final ValueNotifier<bool> isDownloading = ValueNotifier(false);
+  static final ValueNotifier<bool> isDownloadReady = ValueNotifier(false);
+  static String? downloadedFilePath;
+  static final ValueNotifier<double> downloadProgress = ValueNotifier(0.0);
+
 
   static Future<void> checkForUpdates(BuildContext context) async {
     try {
@@ -109,7 +115,6 @@ class VersionService {
     String? apkUrl, double apkSizeMB, String fallbackUrl, String notes, DateTime publishedAt,
   ) async {
     int? freeSpaceBytes;
-    String freeSpaceFormatted = 'Ismeretlen';
     bool hasEnoughSpace = true;
 
     try {
@@ -117,12 +122,6 @@ class VersionService {
       if (freeSpaceBytes != null) {
         final freeSpaceMB = freeSpaceBytes / (1024 * 1024);
         hasEnoughSpace = freeSpaceMB >= 150;
-        
-        if (freeSpaceBytes > 1024 * 1024 * 1024) {
-          freeSpaceFormatted = "\${(freeSpaceBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB";
-        } else {
-          freeSpaceFormatted = "\${freeSpaceMB.toStringAsFixed(0)} MB";
-        }
       }
     } catch (e) {
       debugPrint("Tárhely lekérdezése sikertelen: \$e");
@@ -131,9 +130,7 @@ class VersionService {
     if (!context.mounted) return;
 
     final confettiController = ConfettiController(duration: const Duration(seconds: 3));
-    double downloadProgress = 0;
-    bool isDownloading = false;
-    String statusText = "Frissítés most";
+    String statusText = isDownloading.value ? "Letöltés..." : "Frissítés most";
 
     showDialog(
       context: context,
@@ -202,52 +199,66 @@ class VersionService {
                       ),
                     ),
                   ),
-                  if (isDownloading) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 40,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned(
-                            top: 28,
-                            left: 0,
-                            right: 0,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: LinearProgressIndicator(
-                                value: downloadProgress,
-                                minHeight: 10,
-                                backgroundColor: Colors.grey[800],
-                                color: Colors.blue,
+                  if (isDownloading.value) ...[
+                    ValueListenableBuilder<double>(
+                      valueListenable: downloadProgress,
+                      builder: (context, progress, child) {
+                        return Column(
+                          children: [
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 40,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Positioned(
+                                    top: 28,
+                                    left: 0,
+                                    right: 0,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: LinearProgressIndicator(
+                                        value: progress,
+                                        minHeight: 10,
+                                        backgroundColor: Colors.grey[800],
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: AnimatedAlign(
+                                      duration: const Duration(milliseconds: 200),
+                                      alignment: Alignment(-1.0 + (progress * 2), 0),
+                                      child: const Icon(Icons.rocket_launch, color: Colors.blue, size: 28),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ),
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            child: AnimatedAlign(
-                              duration: const Duration(milliseconds: 200),
-                              // -1.0 a bal szél, 1.0 a jobb szél. 0.0-1.0 progress-t átkötjük
-                              alignment: Alignment(-1.0 + (downloadProgress * 2), 0),
-                              child: const Icon(Icons.rocket_launch, color: Colors.blue, size: 28),
+                            const SizedBox(height: 5),
+                            Center(child: Text(
+                              "${(progress * 100).toInt()}%",
+                              style: const TextStyle(fontSize: 10, color: Colors.blue),
+                            )),
+                            const SizedBox(height: 10),
+                            TextButton.icon(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.arrow_downward_rounded, size: 16),
+                              label: const Text("Háttérbe küldés", style: TextStyle(fontSize: 12)),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        );
+                      }
                     ),
-                    const SizedBox(height: 5),
-                    Center(child: Text(
-                      "${(downloadProgress * 100).toInt()}%",
-                      style: const TextStyle(fontSize: 10, color: Colors.blue),
-                    )),
                   ],
                 ],
               ),
               actions: [
-                if (!isDownloading)
+                if (!isDownloading.value)
                   TextButton(
                     onPressed: () {
                       Navigator.pop(context);
@@ -261,7 +272,7 @@ class VersionService {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () async {
-                    if (isDownloading) return; // Ha már tölt, nem csinálunk semmit
+                    if (isDownloading.value) return; // Ha már tölt, nem csinálunk semmit
 
                     if (apkUrl != null) {
                       // 1. Tárhely ellenőrzés (a már lekérdezett adat alapján)
@@ -277,6 +288,7 @@ class VersionService {
                       // 2. Wi-Fi ellenőrzés (natív Kotlin kód hívása)
                       try {
                         final isWifi = await _platform.invokeMethod<bool>('isWifiConnected');
+                        if (!context.mounted) return;
                         if (isWifi == false) {
                           bool? proceed = await showDialog<bool>(
                             context: context,
@@ -296,20 +308,28 @@ class VersionService {
                         debugPrint("Wi-Fi ellenőrzés sikertelen: \$e");
                       }
 
+                      if (isDownloadReady.value) {
+                        installDownloadedApk();
+                        Navigator.pop(context);
+                        return;
+                      }
+
                       // Alkalmazáson belüli letöltés + telepítés
                       setState(() {
-                        isDownloading = true;
+                        isDownloading.value = true;
                         statusText = "Letöltés...";
                       });
-                      final success = await _downloadAndInstall(
-                        apkUrl,
-                        (progress) => setState(() => downloadProgress = progress),
-                        context,
-                      );
+                      final success = await _downloadAndInstall(apkUrl, context);
+                      
+                      // Ha az ablakot már bezárták (pl. háttérbe küldték), akkor itt megállunk
+                      if (!context.mounted) return;
+
                       if (success) {
                         confettiController.play();
                         await Future.delayed(const Duration(milliseconds: 800));
+                        installDownloadedApk();
                       }
+                      
                       // Azonnal bezárjuk az ablakot, hogy ne akadjon meg
                       // amikor az Android átirányít a Beállításokba
                       if (context.mounted) {
@@ -343,69 +363,66 @@ class VersionService {
     });
   }
 
-  static Future<bool> _downloadAndInstall(String url, Function(double) onProgress, BuildContext context) async {
+  static Future<bool> _downloadAndInstall(String url, BuildContext context) async {
+    isDownloading.value = true;
+    isDownloadReady.value = false;
+    downloadProgress.value = 0;
+
     try {
       final dio = Dio();
       final tempDir = await getTemporaryDirectory();
       final savePath = "${tempDir.path}/radiont_update.apk";
 
       debugPrint("APK letöltés indítása: $url");
-      debugPrint("Mentés ide: $savePath");
-
+      int lastUpdate = 0;
       await dio.download(
         url,
         savePath,
         onReceiveProgress: (received, total) {
-          if (total != -1) onProgress(received / total);
+          if (total != -1) {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            // Frissítjük az UI-t, ha eltelt 100ms vagy befejeződött, hogy ne akadjon meg a UI szál
+            if (now - lastUpdate > 100 || received == total) {
+              downloadProgress.value = received / total;
+              lastUpdate = now;
+            }
+          }
         },
       );
 
-      // Ellenőrizzük hogy a fájl tényleg létrejött-e
       final file = File(savePath);
       if (!await file.exists()) {
-        debugPrint("HIBA: A letöltött fájl nem létezik: $savePath");
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Hiba: A letöltött fájl nem található.")),
-          );
-        }
+        isDownloading.value = false;
         return false;
       }
 
       final fileSize = await file.length();
-      debugPrint("Fájl mérete: ${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB");
-
-      if (fileSize < 1000000) { // Kevesebb mint 1 MB — valószínűleg hibás fájl
-        debugPrint("HIBA: A fájl túl kicsi, valószínűleg nem APK.");
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Hiba: A letöltött fájl hibás. Próbáld újra.")),
-          );
-        }
+      if (fileSize < 1000000) {
+        isDownloading.value = false;
         return false;
       }
 
-      // Natív Android telepítő indítása
-      debugPrint("Telepítő indítása...");
-      await _platform.invokeMethod('installApk', {'filePath': savePath});
-      debugPrint("Telepítő sikeresen elindítva!");
+      downloadedFilePath = savePath;
+      isDownloading.value = false;
+      isDownloadReady.value = true;
+
+      // Ha még nyitva van az ablak (nem háttérben fut), akkor indíthatjuk a telepítést
+      // De biztonságosabb ha a felhasználó kattint rá a kész gombra.
       return true;
-    } on PlatformException catch (e) {
-      debugPrint("Platform hiba a telepítésnél: ${e.code} - ${e.message}");
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Telepítési hiba: ${e.message}\nEngedd be a Beállításokban: Ismeretlen alkalmazások telepítése.")),
-        );
-      }
-      return false;
     } catch (e) {
-      debugPrint("Letöltési/telepítési hiba: $e");
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Hiba: $e")),
-        );
-      }
+      isDownloading.value = false;
+      debugPrint("Letöltési hiba: $e");
       return false;
+    }
+  }
+
+  static Future<void> installDownloadedApk() async {
+    if (downloadedFilePath != null) {
+      try {
+        await _platform.invokeMethod('installApk', {'filePath': downloadedFilePath});
+      } catch (e) {
+        debugPrint("Telepítési hiba: $e");
+      }
     }
   }
 }
