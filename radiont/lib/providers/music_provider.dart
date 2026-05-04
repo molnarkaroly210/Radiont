@@ -84,9 +84,18 @@ class MusicProvider extends ChangeNotifier {
   // === Helyi hálózati megosztás ===
   bool _isStreamingEnabled = false;
   String? _streamingUrl;
+  bool _isMusicModeActive = false;
 
   bool get isStreamingEnabled => _isStreamingEnabled;
   String? get streamingUrl => _streamingUrl;
+  bool get isMusicModeActive => _isMusicModeActive;
+
+  set isMusicModeActive(bool value) {
+    if (_isMusicModeActive != value) {
+      _isMusicModeActive = value;
+      notifyListeners();
+    }
+  }
 
   MusicProvider(this.prefs) {
     _equalizer = AndroidEqualizer();
@@ -843,8 +852,11 @@ class MusicProvider extends ChangeNotifier {
     if (displayed.isEmpty || index >= displayed.length) return;
 
     // Ha ugyanaz a lista és már van betöltve forrás, csak ugrunk (stabilabb az értesítés sávnak)
-    if (_queue.length == displayed.length && _currentPlayingSongId != null && audioPlayer.audioSource != null) {
-      if (_queue.first.id == displayed.first.id && _queue.last.id == displayed.last.id) {
+    if (_queue.length == displayed.length && 
+        _currentPlayingSongId != null && 
+        _currentPlayingSongId != -1 &&
+        audioPlayer.audioSource is ConcatenatingAudioSource) {
+      if (_queue.isNotEmpty && _queue.first.id == displayed.first.id && _queue.last.id == displayed.last.id) {
         _currentIndex = index;
         _currentPlayingSongId = displayed[index].id;
         _incrementPlayCount(_currentPlayingSongId!);
@@ -894,6 +906,30 @@ class MusicProvider extends ChangeNotifier {
       audioPlayer.play();
     } catch (e) {
       if (kDebugMode) print("Hiba a lejátszás közben: $e");
+    }
+  }
+
+  /// Külső (pl. hálózaton keresztül küldött) fájl lejátszása
+  Future<void> playRemoteFile(String filePath, String title) async {
+    _hasStartedPlaying = true;
+    _currentPlayingSongId = -1; // Speciális ID a külső fájlokhoz
+    _queue = []; // Ürítjük a belső sort, hogy a következő sima lejátszásnál újratöltődjön
+    
+    try {
+      await audioPlayer.setAudioSource(
+        AudioSource.uri(
+          Uri.file(filePath),
+          tag: MediaItem(
+            id: 'remote_${DateTime.now().millisecondsSinceEpoch}',
+            title: title,
+            artist: 'Távoli eszközről',
+          ),
+        ),
+      );
+      audioPlayer.play();
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) print("Hiba a távoli fájl lejátszásakor: $e");
     }
   }
 
@@ -976,6 +1012,10 @@ class MusicProvider extends ChangeNotifier {
     if (displayed.isEmpty) return;
 
     if (_currentPlayingSongId != null) {
+      if (_currentPlayingSongId == -1) {
+        playSong(0);
+        return;
+      }
       int currentIdx =
           displayed.indexWhere((s) => s.id == _currentPlayingSongId);
       if (currentIdx != -1) {
@@ -1003,6 +1043,10 @@ class MusicProvider extends ChangeNotifier {
     if (displayed.isEmpty) return;
 
     if (_currentPlayingSongId != null) {
+      if (_currentPlayingSongId == -1) {
+        playSong(displayed.length - 1);
+        return;
+      }
       int currentIdx =
           displayed.indexWhere((s) => s.id == _currentPlayingSongId);
       if (currentIdx != -1) {

@@ -382,6 +382,7 @@ class _MainScreenState extends State<MainScreen> {
   void _toggleMode() {
     setState(() {
       _isMusicMode = !_isMusicMode;
+      context.read<MusicProvider>().isMusicModeActive = _isMusicMode;
       if (_isMusicMode) {
         context.read<RadioProvider>().audioPlayer.stop();
       } else {
@@ -403,6 +404,7 @@ class _MainScreenState extends State<MainScreen> {
 
     // Verzióellenőrzés indításkor
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MusicProvider>().isMusicModeActive = _isMusicMode;
       VersionService.checkForUpdates(context);
     });
   }

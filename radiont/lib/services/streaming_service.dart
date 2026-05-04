@@ -86,8 +86,16 @@ class StreamingService {
       return Response.ok(_getHtmlContent(), headers: {'Content-Type': 'text/html; charset=utf-8'});
     }
 
+    if (path == 'status') {
+      return Response.ok(jsonEncode({
+        'isReady': musicProvider.isMusicModeActive && !musicProvider.isLoading,
+        'isMusicMode': musicProvider.isMusicModeActive,
+        'isLoading': musicProvider.isLoading
+      }), headers: {'Content-Type': 'application/json'});
+    }
+
     if (path == 'songs') {
-      final songs = musicProvider.songs.map((s) => {
+      final songs = musicProvider.displayedSongs.map((s) => {
         'id': s.id,
         'title': s.title,
         'artist': s.artist ?? 'Ismeretlen',
@@ -102,7 +110,7 @@ class StreamingService {
       final idStr = path.replaceFirst('remote/play/', '');
       final id = int.tryParse(idStr);
       if (id != null) {
-        final index = musicProvider.songs.indexWhere((s) => s.id == id);
+        final index = musicProvider.displayedSongs.indexWhere((s) => s.id == id);
         if (index != -1) {
           musicProvider.playSong(index);
           return Response.ok('Lejátszás indítva a telefonon.');
@@ -126,32 +134,16 @@ class StreamingService {
       return Response.ok('Lejátszás/Szünet váltva.');
     }
 
-    // Fájl feltöltése és lejátszása a telefonon
-    if (path == 'upload' && request.method == 'POST') {
-      try {
-        final body = await request.read().toList();
-        final bytes = body.expand((x) => x).toList();
-        
-        final tempDir = await Directory.systemTemp.createTemp('radiont_upload');
-        final file = File('${tempDir.path}/uploaded_song.mp3');
-        await file.writeAsBytes(bytes);
-        
-        // Lejátszás a telefonon
-        musicProvider.audioPlayer.setAudioSource(AudioSource.uri(Uri.file(file.path), 
-          tag: const MediaItem(id: 'uploaded', title: 'Feltöltött zene', artist: 'Távoli eszközről')));
-        musicProvider.audioPlayer.play();
-        
-        return Response.ok('Sikeres feltöltés és lejátszás.');
-      } catch (e) {
-        return Response.internalServerError(body: 'Hiba a feltöltéskor: $e');
-      }
+    if (path == 'remote/toggle') {
+      musicProvider.togglePlayPause();
+      return Response.ok('Lejátszás/Szünet váltva.');
     }
 
     if (path.startsWith('stream/')) {
       final idStr = path.replaceFirst('stream/', '');
       final id = int.tryParse(idStr);
       if (id != null) {
-        final song = musicProvider.songs.where((s) => s.id == id).firstOrNull;
+        final song = musicProvider.displayedSongs.where((s) => s.id == id).firstOrNull;
         if (song != null) {
           final file = File(song.data);
           if (await file.exists()) {
@@ -280,21 +272,48 @@ class StreamingService {
             border-color: var(--primary);
             color: var(--primary);
         }
-        .upload-section {
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            width: 100%;
-            text-align: center;
-        }
         #current-title {
             font-weight: bold;
             color: var(--primary);
         }
+        /* Overlay & Loader */
+        #overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(0, 229, 255, 0.1);
+            border-top: 5px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <div id="overlay">
+        <div class="spinner"></div>
+        <div id="overlay-msg" style="font-family: 'Orbitron', sans-serif; color: var(--primary);">
+            Kapcsolódás a telefonhoz...
+        </div>
+        <div style="font-size: 0.8em; color: #666; margin-top: 10px;">
+            Győződj meg róla, hogy a telefonon a Zene mód van kiválasztva.
+        </div>
+    </div>
     <h1>Radiont Remote</h1>
     <div class="container">
         <div class="player-card">
@@ -311,12 +330,6 @@ class StreamingService {
             </div>
         </div>
 
-        <div class="upload-section">
-            <label for="file-upload" class="btn" style="display: inline-block;">Saját zene küldése a telefonra</label>
-            <input type="file" id="file-upload" style="display: none;" accept="audio/*">
-            <div id="upload-status" style="font-size: 0.8em; margin-top: 5px; color: #888;"></div>
-        </div>
-
         <div id="status" style="margin-top: 20px;">Dalok betöltése...</div>
         <ul class="song-list" id="list"></ul>
     </div>
@@ -326,8 +339,6 @@ class StreamingService {
         const list = document.getElementById('list');
         const currentTitle = document.getElementById('current-title');
         const status = document.getElementById('status');
-        const fileUpload = document.getElementById('file-upload');
-        const uploadStatus = document.getElementById('upload-status');
 
         async function loadSongs() {
             try {
@@ -377,27 +388,51 @@ class StreamingService {
             }
         }
 
-        fileUpload.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            uploadStatus.innerText = 'Feltöltés és lejátszás indítása...';
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: file
-                });
-                if (response.ok) {
-                    uploadStatus.innerText = 'Sikeresen elküldve a telefonra!';
-                } else {
-                    uploadStatus.innerText = 'Hiba a küldés során.';
-                }
-            } catch (err) {
-                uploadStatus.innerText = 'Hiba történt.';
-            }
-        };
 
         loadSongs();
+
+        // Státusz ellenőrzése
+        const overlay = document.getElementById('overlay');
+        const overlayMsg = document.getElementById('overlay-msg');
+        let isReady = false;
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                if (data.isReady) {
+                    if (!isReady) {
+                        overlay.style.display = 'none';
+                        loadSongs();
+                        isReady = true;
+                    }
+                } else {
+                    overlay.style.display = 'flex';
+                    isReady = false;
+                    if (!data.isMusicMode) {
+                        overlayMsg.innerText = 'Válts Zene módra a telefonon!';
+                    } else if (data.isLoading) {
+                        overlayMsg.innerText = 'Zenetár betöltése a telefonon...';
+                    }
+                }
+            } catch (e) {
+                overlay.style.display = 'flex';
+                overlayMsg.innerText = 'Megszakadt a kapcsolat a telefonnal.';
+                isReady = false;
+            }
+        }
+
+        setInterval(checkStatus, 2000);
+        checkStatus();
+
+        // Gyors újracsatlakozás, ha a felhasználó visszatér az oldalra
+        window.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                checkStatus();
+            }
+        });
+        window.addEventListener('focus', checkStatus);
     </script>
 </body>
 </html>
