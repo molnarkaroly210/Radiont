@@ -163,24 +163,36 @@ class RadioProvider extends ChangeNotifier {
   }
 
   Future<void> setStationByIndex(int index, {bool play = true}) async {
-    if (activeStations.isEmpty || index >= activeStations.length) return;
+    if (activeStations.isEmpty || index < 0 || index >= activeStations.length) return;
 
     _currentIndex = index;
-    final stationToPlay = activeStations[_currentIndex];
+    notifyListeners();
 
     try {
-      if (stationToPlay.streamUrl.isNotEmpty &&
-          _audioPlayer.currentIndex != index) {
-        // A háttérlejátszó a teljes lejátszási lista indexét használja
-        await _audioPlayer.seek(Duration.zero, index: index);
+      final stationToPlay = activeStations[_currentIndex];
+      
+      // Kényszerítjük a PageView-t az új indexre
+      if (pageController.hasClients) {
+        pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOut,
+        );
       }
-      if (play && !_audioPlayer.playing) {
-        _audioPlayer.play();
+
+      if (stationToPlay.streamUrl.isNotEmpty) {
+        // Mindig próbáljunk meg odaugrani az audio playlistben is
+        if (_audioPlayer.currentIndex != index) {
+          await _audioPlayer.seek(Duration.zero, index: index);
+        }
+        
+        if (play) {
+          await _audioPlayer.play();
+        }
       }
     } catch (e) {
       debugPrint("Állomás beállítási hiba: $e");
     }
-    notifyListeners();
   }
 
   // Metódus a lejátszási lista (AudioSource) frissítésére
@@ -377,18 +389,18 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   String _currentTime = '';
   Timer? _timer;
-  bool _isMusicMode = false;
 
   void _toggleMode() {
-    setState(() {
-      _isMusicMode = !_isMusicMode;
-      context.read<MusicProvider>().isMusicModeActive = _isMusicMode;
-      if (_isMusicMode) {
-        context.read<RadioProvider>().audioPlayer.stop();
-      } else {
-        context.read<MusicProvider>().audioPlayer.stop();
-      }
-    });
+    final musicProvider = context.read<MusicProvider>();
+    final radioProvider = context.read<RadioProvider>();
+    bool newMode = !musicProvider.isMusicModeActive;
+    
+    musicProvider.isMusicModeActive = newMode;
+    if (newMode) {
+      radioProvider.audioPlayer.stop();
+    } else {
+      musicProvider.audioPlayer.stop();
+    }
   }
 
   @override
@@ -396,7 +408,7 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     // Beállítjuk a kezdőképernyőt a beállítások alapján
     final themeProvider = context.read<ThemeProvider>();
-    _isMusicMode = themeProvider.startScreen == 1;
+    final initialMode = themeProvider.startScreen == 1;
 
     _updateTime();
     _timer =
@@ -404,7 +416,7 @@ class _MainScreenState extends State<MainScreen> {
 
     // Verzióellenőrzés indításkor
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MusicProvider>().isMusicModeActive = _isMusicMode;
+      context.read<MusicProvider>().isMusicModeActive = initialMode;
       VersionService.checkForUpdates(context);
     });
   }
@@ -430,17 +442,19 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final musicProvider = context.watch<MusicProvider>();
     final radioProvider = context.watch<RadioProvider>();
     final themeProvider = context.watch<ThemeProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final stationsToDisplay = radioProvider.activeStations;
+    final isMusicMode = musicProvider.isMusicModeActive;
 
     return Scaffold(
       body: Stack(
         children: [
           const AnimatedBackground(),
           // Radio Háttérkép
-          if (!_isMusicMode)
+          if (!isMusicMode)
             Selector<RadioProvider, String>(
               selector: (_, provider) => provider.currentStation.imageUrl,
               builder: (context, imageUrl, child) {
@@ -468,7 +482,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
 
           // Zene Háttérkép
-          if (_isMusicMode)
+          if (isMusicMode)
             Selector<MusicProvider, int?>(
               selector: (_, provider) => provider.currentSong?.id,
               builder: (context, songId, child) {
@@ -510,7 +524,7 @@ class _MainScreenState extends State<MainScreen> {
               transitionBuilder: (child, animation) => FadeTransition(
                   opacity: animation,
                   child: ScaleTransition(scale: animation, child: child)),
-              child: (radioProvider.isLoading && !_isMusicMode)
+              child: (radioProvider.isLoading && !isMusicMode)
                   ? Center(
                       key: const ValueKey('loader'),
                       child: LoadingAnimationWidget.staggeredDotsWave(
@@ -525,7 +539,7 @@ class _MainScreenState extends State<MainScreen> {
                           const SizedBox(height: 10),
                         TopBar(
                           currentTime: _currentTime,
-                          isMusicMode: _isMusicMode,
+                          isMusicMode: isMusicMode,
                           onToggleMode: _toggleMode,
                           onDownload: () async {
                             await Navigator.push(
@@ -540,7 +554,7 @@ class _MainScreenState extends State<MainScreen> {
                           },
                         ),
                         Expanded(
-                          child: _isMusicMode
+                          child: isMusicMode
                               ? const MusicScreen()
                               : (stationsToDisplay.isEmpty
                                   ? Center(
@@ -593,7 +607,7 @@ class _MainScreenState extends State<MainScreen> {
                                       },
                                     )),
                         ),
-                        if (!_isMusicMode)
+                        if (!isMusicMode)
                           GestureDetector(
                               onVerticalDragEnd: (details) {
                                 if (details.primaryVelocity != null &&
@@ -1416,7 +1430,7 @@ class SettingsSheet extends StatelessWidget {
                               : "Zenék elérése böngészőből a helyi hálózaton",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isStreamingEnabled,
-                      onChanged: (_) => musicProvider.toggleStreaming(),
+                      onChanged: (_) => musicProvider.toggleStreaming(radioProvider),
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),

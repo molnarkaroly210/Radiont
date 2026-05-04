@@ -1486,7 +1486,7 @@ class MusicProvider extends ChangeNotifier {
   }
 
   /// Helyi hálózati megosztás váltása
-  Future<void> toggleStreaming() async {
+  Future<void> toggleStreaming(dynamic radioProvider) async {
     final service = StreamingService();
     if (_isStreamingEnabled) {
       await service.stopServer();
@@ -1494,7 +1494,7 @@ class MusicProvider extends ChangeNotifier {
       _streamingUrl = null;
     } else {
       try {
-        await service.startServer(this);
+        await service.startServer(this, radioProvider);
         _isStreamingEnabled = true;
         _streamingUrl = service.url;
       } catch (e) {
@@ -1503,6 +1503,19 @@ class MusicProvider extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// Mód váltása (Zene/Rádió)
+  void setMusicMode(bool music, dynamic radioProvider) {
+    if (_isMusicModeActive != music) {
+      _isMusicModeActive = music;
+      if (music) {
+        radioProvider.audioPlayer.stop();
+      } else {
+        audioPlayer.stop();
+      }
+      notifyListeners();
+    }
   }
 
   @override

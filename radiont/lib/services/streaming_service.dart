@@ -21,7 +21,7 @@ class StreamingService {
   factory StreamingService() => _instance;
   StreamingService._internal();
 
-  Future<void> startServer(MusicProvider musicProvider) async {
+  Future<void> startServer(MusicProvider musicProvider, dynamic radioProvider) async {
     if (_isRunning) return;
 
     try {
@@ -46,7 +46,7 @@ class StreamingService {
       var handler = const Pipeline()
           .addMiddleware(logRequests())
           .addMiddleware(_corsMiddleware)
-          .addHandler((Request request) => _handleRequest(request, musicProvider));
+          .addHandler((Request request) => _handleRequest(request, musicProvider, radioProvider));
 
       _server = await io.serve(handler, InternetAddress.anyIPv4, port);
       _isRunning = true;
@@ -76,28 +76,43 @@ class StreamingService {
     };
   };
 
-  Future<Response> _handleRequest(Request request, MusicProvider musicProvider) async {
+  Future<Response> _handleRequest(Request request, MusicProvider musicProvider, dynamic radioProvider) async {
     final path = request.url.path;
+    final isMusicMode = musicProvider.isMusicModeActive;
 
     if (path == '' || path == 'index.html') {
       return Response.ok(_getHtmlContent(), headers: {'Content-Type': 'text/html; charset=utf-8'});
     }
 
     if (path == 'status') {
-      final currentSong = musicProvider.currentSong;
-      return Response.ok(jsonEncode({
-        'isReady': musicProvider.isMusicModeActive && !musicProvider.isLoading,
-        'isMusicMode': musicProvider.isMusicModeActive,
-        'isLoading': musicProvider.isLoading,
-        'volume': musicProvider.systemVolume,
-        'position': musicProvider.audioPlayer.position.inMilliseconds,
-        'duration': musicProvider.audioPlayer.duration?.inMilliseconds ?? 0,
-        'nowPlaying': currentSong != null ? {
+      Map<String, dynamic> status = {
+        'isReady': true, // Mindig ready, ha a szerver fut
+        'isMusicMode': isMusicMode,
+        'isLoading': isMusicMode ? musicProvider.isLoading : radioProvider.isLoading,
+        'volume': isMusicMode ? musicProvider.systemVolume : radioProvider.systemVolume,
+      };
+
+      if (isMusicMode) {
+        final currentSong = musicProvider.currentSong;
+        status['position'] = musicProvider.audioPlayer.position.inMilliseconds;
+        status['duration'] = musicProvider.audioPlayer.duration?.inMilliseconds ?? 0;
+        status['nowPlaying'] = currentSong != null ? {
           'title': musicProvider.getSongTitle(currentSong),
           'artist': musicProvider.getSongArtist(currentSong),
           'isPlaying': musicProvider.audioPlayer.playing,
-        } : null
-      }), headers: {'Content-Type': 'application/json'});
+        } : null;
+      } else {
+        final currentStation = radioProvider.currentStation;
+        status['nowPlaying'] = {
+          'title': currentStation.name,
+          'artist': currentStation.nowPlaying,
+          'isPlaying': radioProvider.audioPlayer.playing,
+        };
+        status['position'] = 0;
+        status['duration'] = 0;
+      }
+
+      return Response.ok(jsonEncode(status), headers: {'Content-Type': 'application/json'});
     }
 
     if (path == 'songs') {
@@ -111,56 +126,108 @@ class StreamingService {
       return Response.ok(jsonEncode(songs), headers: {'Content-Type': 'application/json'});
     }
 
+    if (path == 'stations') {
+      final stations = (radioProvider.activeStations as List).map((s) => {
+        'id': s.id,
+        'name': s.name,
+        'imageUrl': s.imageUrl,
+        'nowPlaying': s.nowPlaying,
+      }).toList();
+      return Response.ok(jsonEncode(stations), headers: {'Content-Type': 'application/json'});
+    }
+
     // Távirányítás: Lejátszás a telefonon
     if (path.startsWith('remote/play/')) {
       final idStr = path.replaceFirst('remote/play/', '');
+      
+      if (idStr.startsWith('radio/')) {
+        final stationId = idStr.replaceFirst('radio/', '');
+        final stations = radioProvider.activeStations as List;
+        final index = stations.indexWhere((s) => s.id == stationId);
+        if (index != -1) {
+          await radioProvider.setStationByIndex(index);
+          return Response.ok('Rádióállomás váltva.');
+        }
+        return Response.notFound('Rádióállomás nem található.');
+      }
+
       final id = int.tryParse(idStr);
       if (id != null) {
-        final index = musicProvider.displayedSongs.indexWhere((s) => s.id == id);
-        if (index != -1) {
-          musicProvider.playSong(index);
-          return Response.ok('Lejátszás indítva a telefonon.');
+        if (isMusicMode) {
+          final index = musicProvider.displayedSongs.indexWhere((s) => s.id == id);
+          if (index != -1) {
+            musicProvider.playSong(index);
+            return Response.ok('Lejátszás indítva a telefonon.');
+          }
         }
       }
       return Response.notFound('Zene nem található.');
     }
 
     if (path == 'remote/next') {
-      musicProvider.nextSong();
+      if (isMusicMode) {
+        musicProvider.nextSong();
+      } else {
+        radioProvider.nextStation();
+      }
       return Response.ok('Következő.');
     }
 
     if (path == 'remote/prev') {
-      musicProvider.previousSong();
+      if (isMusicMode) {
+        musicProvider.previousSong();
+      } else {
+        radioProvider.previousStation();
+      }
       return Response.ok('Előző.');
     }
 
     if (path == 'remote/toggle') {
-      musicProvider.togglePlayPause();
+      if (isMusicMode) {
+        musicProvider.togglePlayPause();
+      } else {
+        radioProvider.togglePlayPause();
+      }
       return Response.ok('Lejátszás/Szünet váltva.');
+    }
+
+    if (path == 'remote/mode/music') {
+      musicProvider.setMusicMode(true, radioProvider);
+      return Response.ok('Váltás Zene módra.');
+    }
+
+    if (path == 'remote/mode/radio') {
+      musicProvider.setMusicMode(false, radioProvider);
+      return Response.ok('Váltás Rádió módra.');
     }
 
     if (path.startsWith('remote/volume/')) {
       final volStr = path.replaceFirst('remote/volume/', '');
       final vol = double.tryParse(volStr);
       if (vol != null) {
-        musicProvider.setSystemVolume(vol);
+        if (isMusicMode) {
+          musicProvider.setSystemVolume(vol);
+        } else {
+          radioProvider.setSystemVolume(vol);
+        }
         return Response.ok('Hangerő beállítva: $vol');
       }
       return Response.badRequest(body: 'Érvénytelen hangerő.');
     }
 
     if (path.startsWith('remote/seek/')) {
-      final msStr = path.replaceFirst('remote/seek/', '');
-      final ms = int.tryParse(msStr);
-      if (ms != null) {
-        musicProvider.audioPlayer.seek(
-          Duration(milliseconds: ms),
-          index: musicProvider.audioPlayer.currentIndex,
-        );
-        return Response.ok('Keresés befejezve.');
+      if (isMusicMode) {
+        final msStr = path.replaceFirst('remote/seek/', '');
+        final ms = int.tryParse(msStr);
+        if (ms != null) {
+          musicProvider.audioPlayer.seek(
+            Duration(milliseconds: ms),
+            index: musicProvider.audioPlayer.currentIndex,
+          );
+          return Response.ok('Keresés befejezve.');
+        }
       }
-      return Response.badRequest(body: 'Érvénytelen időpont.');
+      return Response.badRequest(body: 'Érvénytelen időpont vagy nem támogatott mód.');
     }
 
     if (path.startsWith('stream/')) {
@@ -217,13 +284,53 @@ class StreamingService {
             color: var(--primary);
             text-transform: uppercase;
             letter-spacing: 3px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
         }
         .container {
             width: 100%;
             max-width: 800px;
         }
+        
+        /* Mód választó */
+        .mode-switcher {
+            display: flex;
+            width: 100%;
+            background: var(--card);
+            border-radius: 15px;
+            padding: 5px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .mode-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            opacity: 0.6;
+        }
+        .mode-btn.active {
+            background: var(--primary);
+            color: #000;
+            opacity: 1;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+        }
+        .mode-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
         .player-card {
             background: var(--card);
             border-radius: 20px;
@@ -240,7 +347,7 @@ class StreamingService {
             margin-top: 15px;
             filter: invert(100%) hue-rotate(180deg) brightness(1.5);
         }
-        /* Kereső stílus */
+        
         .search-container {
             width: 100%;
             margin-bottom: 20px;
@@ -272,7 +379,7 @@ class StreamingService {
             opacity: 0.7;
             pointer-events: none;
         }
-        /* Hangerő csúszka stílus */
+        
         .volume-container {
             width: 100%;
             margin-top: 15px;
@@ -317,12 +424,7 @@ class StreamingService {
             border: 2px solid var(--bg);
             transition: all 0.2s ease-in-out;
         }
-        .volume-slider::-webkit-slider-thumb:hover {
-            transform: scale(1.1);
-            box-shadow: 0 0 15px var(--primary);
-        }
 
-        /* Idővonal (Progress) csúszka stílus */
         .progress-container {
             width: 100%;
             margin-bottom: 10px;
@@ -358,10 +460,6 @@ class StreamingService {
             box-shadow: 0 0 15px var(--secondary);
             border: 2px solid var(--bg);
             transition: all 0.2s ease-in-out;
-        }
-        .progress-slider::-webkit-slider-thumb:hover {
-            transform: scale(1.2);
-            box-shadow: 0 0 25px var(--secondary);
         }
         .progress-time {
             display: flex;
@@ -415,11 +513,14 @@ class StreamingService {
             background: rgba(255,255,255,0.1);
             border: 1px solid rgba(255,255,255,0.2);
             color: #fff;
-            padding: 5px 10px;
+            padding: 10px 15px;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 0.8em;
+            font-size: 0.9em;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .btn:hover {
             background: var(--primary);
@@ -433,7 +534,7 @@ class StreamingService {
             font-weight: bold;
             color: var(--primary);
         }
-        /* Overlay & Loader */
+        
         #overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -467,14 +568,25 @@ class StreamingService {
         <div id="overlay-msg" style="font-family: 'Orbitron', sans-serif; color: var(--primary);">
             Kapcsolódás a telefonhoz...
         </div>
-        <div style="font-size: 0.8em; color: #666; margin-top: 10px;">
-            Győződj meg róla, hogy a telefonon a Zene mód van kiválasztva.
-        </div>
     </div>
+    
     <h1>Radiont Remote</h1>
+    
     <div class="container">
-        <!-- Most szól (Streaming) -->
-        <div class="player-card">
+        <!-- Mód választó -->
+        <div class="mode-switcher">
+            <button id="mode-btn-radio" class="mode-btn" onclick="switchMode('radio')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+                RÁDIÓ
+            </button>
+            <button id="mode-btn-music" class="mode-btn" onclick="switchMode('music')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                ZENE
+            </button>
+        </div>
+
+        <!-- Most szól (Streaming - Csak Zene módban látszik a lista alatt) -->
+        <div id="browser-player-card" class="player-card" style="display: none;">
             <div id="current-info" style="font-size: 0.9em; margin-bottom: 5px; opacity: 0.8;">Most szól itt (Böngésző):</div>
             <div id="current-title" style="font-weight: bold; margin-bottom: 10px;">-</div>
             <audio id="audio-player" controls></audio>
@@ -482,13 +594,13 @@ class StreamingService {
 
         <!-- Távirányító + Most szól a telefonon -->
         <div class="player-card">
-            <div style="font-weight: bold; margin-bottom: 15px;">Telefon távirányító</div>
+            <div style="font-weight: bold; margin-bottom: 15px; font-family: 'Orbitron', sans-serif; letter-spacing: 1px;">TELEFON VEZÉRLÉS</div>
             
             <div id="phone-now-playing" style="font-size: 0.9em; margin-bottom: 15px; color: var(--primary); text-align: center; min-height: 40px; display: flex; flex-direction: column; justify-content: center;">
                 <span style="opacity: 0.5;">Betöltés...</span>
             </div>
 
-            <!-- Idővonal -->
+            <!-- Idővonal (Csak Zene módban) -->
             <div class="progress-container" id="progress-container" style="display: none;">
                 <div class="progress-slider-wrapper">
                     <input type="range" id="progress-slider" class="progress-slider" min="0" max="100" value="0" oninput="handleSeekInput(this.value)" onchange="handleSeekChange(this.value)">
@@ -501,7 +613,7 @@ class StreamingService {
 
             <div class="actions">
                 <button class="btn" onclick="remoteAction('prev')">⏮ Előző</button>
-                <button class="btn btn-remote" id="remote-toggle-btn" onclick="remoteAction('toggle')">⏯ Play/Pause</button>
+                <button class="btn btn-remote" id="remote-toggle-btn" onclick="remoteAction('toggle')">▶ Play</button>
                 <button class="btn" onclick="remoteAction('next')">⏭ Következő</button>
             </div>
             
@@ -516,13 +628,15 @@ class StreamingService {
             </div>
         </div>
 
-        <div class="search-container">
-            <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" id="search-input" class="search-input" placeholder="Keresés zenék vagy előadók között..." oninput="handleSearch(this.value)">
-        </div>
+        <div id="music-library-section" style="display: none;">
+            <div class="search-container">
+                <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="search-input" class="search-input" placeholder="Keresés zenék vagy előadók között..." oninput="handleSearch(this.value)">
+            </div>
 
-        <div id="status" style="margin-top: 10px; margin-bottom: 10px; font-size: 0.9em; opacity: 0.8;">Dalok betöltése...</div>
-        <ul class="song-list" id="list"></ul>
+            <div id="status" style="margin-top: 10px; margin-bottom: 10px; font-size: 0.9em; opacity: 0.8;">Dalok betöltése...</div>
+            <ul class="song-list" id="list"></ul>
+        </div>
     </div>
 
     <script>
@@ -540,10 +654,17 @@ class StreamingService {
         const progressSlider = document.getElementById('progress-slider');
         const timeCurrent = document.getElementById('time-current');
         const timeTotal = document.getElementById('time-total');
+        
+        const modeBtnRadio = document.getElementById('mode-btn-radio');
+        const modeBtnMusic = document.getElementById('mode-btn-music');
+        const musicLibrarySection = document.getElementById('music-library-section');
+        const browserPlayerCard = document.getElementById('browser-player-card');
 
         let allSongs = [];
+        let allStations = [];
         let isUserAdjustingVolume = false;
         let isUserSeeking = false;
+        let currentMode = 'radio';
 
         function formatTime(ms) {
             if (!ms || isNaN(ms)) return '0:00';
@@ -553,19 +674,26 @@ class StreamingService {
             return `\${minutes}:\${seconds.toString().padStart(2, '0')}`;
         }
 
-        async function loadSongs() {
+        async function loadContent() {
             try {
-                const response = await fetch('/songs');
-                allSongs = await response.json();
-                renderSongs(allSongs);
+                if (currentMode === 'music') {
+                    const response = await fetch('/songs');
+                    allSongs = await response.json();
+                    renderSongs(allSongs);
+                } else {
+                    const response = await fetch('/stations');
+                    allStations = await response.json();
+                    renderStations(allStations);
+                }
             } catch (e) {
-                status.innerText = 'Hiba a betöltéskor. Frissítsd az oldalt!';
+                status.innerText = 'Hiba a betöltéskor.';
             }
         }
 
         function renderSongs(songs) {
             status.innerText = `Összesen \${songs.length} dal találva`;
             list.innerHTML = '';
+            searchInput.placeholder = "Keresés zenék vagy előadók között...";
             
             if (songs.length === 0) {
                 list.innerHTML = '<div style="text-align: center; padding: 40px; opacity: 0.5;">Nincs találat</div>';
@@ -581,7 +709,33 @@ class StreamingService {
                         <span class="song-artist">\${song.artist}</span>
                     </div>
                     <div class="actions">
-                        <button class="btn btn-remote" onclick="playOnPhone(\${song.id})">Lejátszás a telefonon</button>
+                        <button class="btn btn-remote" onclick="playOnPhone(\${song.id})">📲 Telefonon</button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        function renderStations(stations) {
+            status.innerText = `\${stations.length} rádióállomás elérhető`;
+            list.innerHTML = '';
+            searchInput.placeholder = "Keresés rádióadók között...";
+            
+            if (stations.length === 0) {
+                list.innerHTML = '<div style="text-align: center; padding: 40px; opacity: 0.5;">Nincs állomás</div>';
+                return;
+            }
+
+            stations.forEach(station => {
+                const li = document.createElement('li');
+                li.className = 'song-item';
+                li.innerHTML = `
+                    <div class="song-info" onclick="playStationOnPhone('\${station.id}')">
+                        <span class="song-title">\${station.name}</span>
+                        <span class="song-artist">\${station.nowPlaying || 'Stream Online'}</span>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-remote" onclick="playStationOnPhone('\${station.id}')">📲 Váltás</button>
                     </div>
                 `;
                 list.appendChild(li);
@@ -589,14 +743,22 @@ class StreamingService {
         }
 
         function handleSearch(query) {
-            const filtered = allSongs.filter(song => 
-                song.title.toLowerCase().includes(query.toLowerCase()) || 
-                song.artist.toLowerCase().includes(query.toLowerCase())
-            );
-            renderSongs(filtered);
+            if (currentMode === 'music') {
+                const filtered = allSongs.filter(song => 
+                    song.title.toLowerCase().includes(query.toLowerCase()) || 
+                    song.artist.toLowerCase().includes(query.toLowerCase())
+                );
+                renderSongs(filtered);
+            } else {
+                const filtered = allStations.filter(station => 
+                    station.name.toLowerCase().includes(query.toLowerCase())
+                );
+                renderStations(filtered);
+            }
         }
 
         function playHere(song) {
+            browserPlayerCard.style.display = 'flex';
             currentTitle.innerText = `\${song.artist} - \${song.title}`;
             audio.src = `/stream/\${song.id}`;
             audio.play();
@@ -611,12 +773,30 @@ class StreamingService {
             }
         }
 
+        async function playStationOnPhone(id) {
+            try {
+                await fetch(`/remote/play/radio/\${id}`);
+                checkStatus();
+            } catch (e) {
+                console.error('Hiba a rádióváltáskor.');
+            }
+        }
+
         async function remoteAction(action) {
             try {
                 await fetch(`/remote/\${action}`);
                 checkStatus();
             } catch (e) {
                 console.error('Hiba a távirányításkor.');
+            }
+        }
+
+        async function switchMode(mode) {
+            try {
+                await fetch(`/remote/mode/\${mode}`);
+                checkStatus();
+            } catch (e) {
+                console.error('Hiba a mód váltásakor.');
             }
         }
 
@@ -655,9 +835,6 @@ class StreamingService {
             setTimeout(() => { isUserSeeking = false; }, 1000);
         }
 
-
-        loadSongs();
-
         // Státusz ellenőrzése
         const overlay = document.getElementById('overlay');
         const overlayMsg = document.getElementById('overlay-msg');
@@ -669,32 +846,53 @@ class StreamingService {
                 const data = await response.json();
                 
                 if (data.isReady) {
-                    if (!isReady) {
-                        overlay.style.display = 'none';
-                        loadSongs();
+                    overlay.style.display = 'none';
+                    
+                    const modeChanged = currentMode !== (data.isMusicMode ? 'music' : 'radio');
+                    currentMode = data.isMusicMode ? 'music' : 'radio';
+
+                    if (!isReady || modeChanged) {
+                        loadContent();
                         isReady = true;
+                    }
+
+                    // Mód választó frissítése
+                    modeBtnRadio.classList.toggle('active', currentMode === 'radio');
+                    modeBtnMusic.classList.toggle('active', currentMode === 'music');
+                    
+                    // Csak Zene módban mutassuk a tartalmi szekciót (listát)
+                    musicLibrarySection.style.display = currentMode === 'music' ? 'block' : 'none';
+
+                    // Elrejtjük a böngészős lejátszót, ha rádió módba váltunk
+                    if (currentMode === 'radio') {
+                        browserPlayerCard.style.display = 'none';
+                        audio.pause();
                     }
 
                     // Most szól a telefonon frissítése
                     if (data.nowPlaying) {
                         phoneNowPlaying.innerHTML = `
-                            <span style="font-size: 0.8em; opacity: 0.7; margin-bottom: 2px;">Most szól a telefonon:</span>
+                            <span style="font-size: 0.8em; opacity: 0.7; margin-bottom: 2px;">\${currentMode === 'music' ? 'Most szól a telefonon:' : 'Aktuális rádióadó:'}</span>
                             <span style="font-weight: 600;">\${data.nowPlaying.title}</span>
-                            <span style="font-size: 0.85em; opacity: 0.8;">\${data.nowPlaying.artist}</span>
+                            <span style="font-size: 0.85em; opacity: 0.8;">\${data.nowPlaying.artist || ''}</span>
                         `;
                         remoteToggleBtn.innerText = data.nowPlaying.isPlaying ? '⏸ Pause' : '▶ Play';
                         
-                        // Idővonal frissítése
-                        progressContainer.style.display = 'flex';
-                        if (!isUserSeeking) {
-                            progressSlider.max = data.duration;
-                            progressSlider.value = data.position;
-                            timeCurrent.innerText = formatTime(data.position);
-                            timeTotal.innerText = formatTime(data.duration);
+                        // Idővonal frissítése (csak zene módban és ha van tartalom)
+                        if (currentMode === 'music' && data.duration > 0) {
+                            progressContainer.style.display = 'flex';
+                            if (!isUserSeeking) {
+                                progressSlider.max = data.duration;
+                                progressSlider.value = data.position;
+                                timeCurrent.innerText = formatTime(data.position);
+                                timeTotal.innerText = formatTime(data.duration);
+                            }
+                        } else {
+                            progressContainer.style.display = 'none';
                         }
                     } else {
                         phoneNowPlaying.innerHTML = '<span style="opacity: 0.5;">A telefonon semmi nem szól.</span>';
-                        remoteToggleBtn.innerText = '⏯ Play/Pause';
+                        remoteToggleBtn.innerText = '▶ Play';
                         progressContainer.style.display = 'none';
                     }
 
@@ -705,12 +903,8 @@ class StreamingService {
                     }
                 } else {
                     overlay.style.display = 'flex';
+                    overlayMsg.innerText = 'Betöltés...';
                     isReady = false;
-                    if (!data.isMusicMode) {
-                        overlayMsg.innerText = 'Válts Zene módra a telefonon!';
-                    } else if (data.isLoading) {
-                        overlayMsg.innerText = 'Zenetár betöltése a telefonon...';
-                    }
                 }
             } catch (e) {
                 overlay.style.display = 'flex';
@@ -722,7 +916,6 @@ class StreamingService {
         setInterval(checkStatus, 2000);
         checkStatus();
 
-        // Gyors újracsatlakozás
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 checkStatus();
