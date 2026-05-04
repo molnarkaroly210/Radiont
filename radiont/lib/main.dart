@@ -303,7 +303,7 @@ Future<void> main() async {
 
   // Értesítési engedély kérése (Android 13+ esetén szükséges a vezérlőkhöz)
   if (Platform.isAndroid) {
-    await Permission.notification.request();
+    Permission.notification.request(); // Ne várjuk meg (await), hogy ne akadjon meg az indítás
   }
 
   // === PRIVÁT DNS BEÁLLÍTÁSA ===
@@ -1191,6 +1191,7 @@ class SettingsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
     final radioProvider = context.watch<RadioProvider>();
+    final musicProvider = context.watch<MusicProvider>();
     final theme = Theme.of(context);
 
     return GlassmorphicContainer(
@@ -1397,6 +1398,47 @@ class SettingsSheet extends StatelessWidget {
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  const Divider(height: 25, thickness: 0.5),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0),
+                      child: Text("Hálózati megosztás",
+                          style: theme.textTheme.titleMedium)),
+                  SwitchListTile(
+                      title: Text("Webes streaming szerver",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text(
+                          musicProvider.isStreamingEnabled
+                              ? "Cím: ${musicProvider.streamingUrl}"
+                              : "Zenék elérése böngészőből a helyi hálózaton",
+                          style: theme.textTheme.bodyMedium),
+                      value: musicProvider.isStreamingEnabled,
+                      onChanged: (_) => musicProvider.toggleStreaming(),
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  if (musicProvider.isStreamingEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 10, bottom: 10),
+                      child: PressableScaleWidget(
+                        child: TextButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(
+                                text: musicProvider.streamingUrl ?? ""));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Cím másolva a vágólapra"),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          icon: Icon(Icons.copy_rounded,
+                              size: 18, color: theme.primaryColor),
+                          label: Text("Cím másolása",
+                              style: TextStyle(color: theme.primaryColor)),
+                        ),
+                      ),
                     ),
                   const Divider(height: 25, thickness: 0.5),
                   Padding(

@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:file_saver/file_saver.dart';
 import '../models/album_model.dart';
+import '../services/streaming_service.dart';
 
 // Rendezési módok
 enum SortMode { title, artist, dateAdded, duration, playCount }
@@ -79,6 +80,13 @@ class MusicProvider extends ChangeNotifier {
   double _bassBoostLevel = 0.0; // 0.0 - 1.0 (0% - 100%)
   String _listSwipeRightAction = 'add_to_queue'; // Alapértelmezett: hozzáadás
   String _listSwipeLeftAction = 'archive'; // Alapértelmezett: archiválás
+
+  // === Helyi hálózati megosztás ===
+  bool _isStreamingEnabled = false;
+  String? _streamingUrl;
+
+  bool get isStreamingEnabled => _isStreamingEnabled;
+  String? get streamingUrl => _streamingUrl;
 
   MusicProvider(this.prefs) {
     _equalizer = AndroidEqualizer();
@@ -1401,10 +1409,31 @@ class MusicProvider extends ChangeNotifier {
     }
   }
 
+  /// Helyi hálózati megosztás váltása
+  Future<void> toggleStreaming() async {
+    final service = StreamingService();
+    if (_isStreamingEnabled) {
+      await service.stopServer();
+      _isStreamingEnabled = false;
+      _streamingUrl = null;
+    } else {
+      try {
+        await service.startServer(this);
+        _isStreamingEnabled = true;
+        _streamingUrl = service.url;
+      } catch (e) {
+        debugPrint('Streaming hiba: $e');
+        _isStreamingEnabled = false;
+      }
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     cancelSleepTimer();
     audioPlayer.dispose();
+    StreamingService().stopServer();
     super.dispose();
   }
 }

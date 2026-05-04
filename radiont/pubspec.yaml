@@ -50,6 +50,8 @@ dependencies:
 
   flutter_inappwebview: ^6.1.5
   receive_sharing_intent: ^1.8.1
+  shelf: ^1.4.2
+  network_info_plus: ^7.0.0
 
 
 dev_dependencies:
