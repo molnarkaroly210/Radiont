@@ -21,6 +21,7 @@ import 'screens/music_screen.dart';
 import 'screens/download_webview_screen.dart';
 import 'services/dns_service.dart';
 import 'services/version_service.dart';
+import 'services/sharing_service.dart';
 import 'providers/theme_provider.dart';
 import 'widgets/pressable_scale_widget.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -322,6 +323,9 @@ Future<void> main() async {
     androidNotificationIcon: 'mipmap/ic_launcher',
   );
 
+  // SharingService inicializálása
+  SharingService.init();
+
   final prefs = await SharedPreferences.getInstance();
   runApp(
     MultiProvider(
@@ -342,6 +346,7 @@ class RadiontApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
     return MaterialApp(
+      navigatorKey: SharingService.navigatorKey,
       title: 'Radiont',
       theme: themeProvider.getLightTheme(),
       darkTheme: themeProvider.getDarkTheme(),

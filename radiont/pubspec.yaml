@@ -49,6 +49,7 @@ dependencies:
   file_saver: ^0.2.14
 
   flutter_inappwebview: ^6.1.5
+  receive_sharing_intent: ^1.8.1
 
 
 dev_dependencies:

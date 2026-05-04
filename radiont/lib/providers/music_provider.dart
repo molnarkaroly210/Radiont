@@ -448,19 +448,37 @@ class MusicProvider extends ChangeNotifier {
   }
 
   Future<void> fetchSongs() async {
+    // Ellenőrizzük az engedélyeket az on_audio_query belső rendszerével is
+    bool hasPermission = await _audioQuery.permissionsStatus();
+    if (!hasPermission) {
+      hasPermission = await _audioQuery.permissionsRequest();
+    }
+
+    _hasPermission = hasPermission;
+    if (!hasPermission) {
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     _isLoading = true;
     notifyListeners();
 
-    List<SongModel> allSongs = await _audioQuery.querySongs(
-      sortType: null,
-      orderType: OrderType.ASC_OR_SMALLER,
-      uriType: UriType.EXTERNAL,
-      ignoreCase: true,
-    );
+    try {
+      List<SongModel> allSongs = await _audioQuery.querySongs(
+        sortType: null,
+        orderType: OrderType.ASC_OR_SMALLER,
+        uriType: UriType.EXTERNAL,
+        ignoreCase: true,
+      );
 
-    _songs = allSongs;
-    _isLoading = false;
-    notifyListeners();
+      _songs = allSongs;
+    } catch (e) {
+      debugPrint("Hiba a dalok lekérésekor: $e");
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   // ================================================================

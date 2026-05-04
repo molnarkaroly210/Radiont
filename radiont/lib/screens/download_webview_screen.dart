@@ -14,7 +14,8 @@ import 'package:provider/provider.dart';
 import '../providers/music_provider.dart';
 
 class DownloadWebViewScreen extends StatefulWidget {
-  const DownloadWebViewScreen({super.key});
+  final String? sharedUrl;
+  const DownloadWebViewScreen({super.key, this.sharedUrl});
 
   @override
   State<DownloadWebViewScreen> createState() => _DownloadWebViewScreenState();
@@ -411,6 +412,28 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
               _isLoading = false;
               if (title != null && title.isNotEmpty) _pageTitle = title;
             });
+
+            // Ha van megosztott URL, beillesztjük a keresőmezőbe
+            if (widget.sharedUrl != null && url != null && url.toString().contains('y2mate.nu')) {
+              await controller.evaluateJavascript(source: """
+                (function() {
+                  var input = document.getElementById('video') || document.querySelector('input[type="text"]');
+                  if (input) {
+                    input.value = '${widget.sharedUrl}';
+                    // Kiváltjuk az input eseményt, hogy a weboldal észlelje a változást
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // Megpróbáljuk automatikusan elindítani a keresést
+                    var btn = document.querySelector('button[type="submit"]') || 
+                              document.querySelector('input[type="submit"]') ||
+                              document.querySelector('.btn-convert');
+                    if (btn) {
+                      btn.click();
+                    }
+                  }
+                })();
+              """);
+            }
           },
           onReceivedError: (controller, request, error) {
             setState(() => _isLoading = false);
