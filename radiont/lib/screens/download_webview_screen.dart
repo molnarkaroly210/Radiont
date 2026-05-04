@@ -126,6 +126,28 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                         urlRequest: URLRequest(url: WebUri('https://v2.y2mate.nu/')),
                       );
                     } else {
+                      // Ha végeztünk a listával, töröljük az aktuális URL-t, hogy ne induljon újra
+                      setState(() {
+                        _currentUrl = null;
+                      });
+
+                      if (widget.playlistUrls != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.white),
+                                SizedBox(width: 10),
+                                Text("A lejátszási lista összes eleme letöltve!"),
+                              ],
+                            ),
+                            backgroundColor: Colors.green.shade800,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      }
+
                       // WebView újratöltése alapállapotba
                       _webViewController?.loadUrl(
                         urlRequest: URLRequest(url: WebUri('https://v2.y2mate.nu/')),
@@ -468,19 +490,24 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                   var checkDownloadBtn = setInterval(function() {
                     checkCount++;
                     
-                    // Különféle variációk a letöltés gombra y2mate-en
-                    var dlBtn = document.querySelector('a.btn-download') || 
-                                document.querySelector('a[href*="download"]') ||
-                                document.querySelector('.btn-success') ||
-                                document.querySelector('button.btn-success') ||
-                                document.querySelector('#process-result a');
+                    // Minden gombot és linket megvizsgálunk, hátha valamelyik a letöltés
+                    var allElements = document.querySelectorAll('a, button, div[role="button"]');
+                    var found = false;
                     
-                    if (dlBtn && dlBtn.offsetParent !== null) {
-                      // Ha látható és van szövege, kattintsunk
-                      if (dlBtn.innerText.toLowerCase().includes('download') || dlBtn.href.includes('download')) {
-                        dlBtn.click();
-                        clearInterval(checkDownloadBtn);
+                    for (var i = 0; i < allElements.length; i++) {
+                      var el = allElements[i];
+                      var text = el.innerText.toLowerCase();
+                      
+                      // Csak ha látható és "Download" vagy "Letöltés" szerepel benne
+                      if (el.offsetParent !== null && (text.includes('download') || text.includes('letöltés'))) {
+                        el.click();
+                        found = true;
+                        break;
                       }
+                    }
+                    
+                    if (found) {
+                      clearInterval(checkDownloadBtn);
                     }
                     
                     // 60 másodperc után feladjuk
