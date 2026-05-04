@@ -1142,6 +1142,110 @@ class MusicProvider extends ChangeNotifier {
   // YouTube Zene Letöltés - stream.listen() + callback alapú
   // ============================================================
 
+  Future<void> downloadYoutubePlaylist(
+    String url, {
+    void Function(int current, int total, String title)? onSongStart,
+    void Function(double progress)? onSongProgress,
+    void Function()? onDone,
+    void Function(String error)? onError,
+  }) async {
+    if (url.isEmpty) return;
+
+    if (!_hasPermission) {
+      await requestPermission();
+      if (!_hasPermission) {
+        onError?.call("Nincs tárhely engedély!");
+        return;
+      }
+    }
+
+    var yt = YoutubeExplode();
+    try {
+      PlaylistId? playlistId;
+      try {
+        String? id = PlaylistId.parsePlaylistId(url);
+        if (id != null) {
+          playlistId = PlaylistId(id);
+        }
+      } catch (_) {}
+
+      if (playlistId == null) {
+        onError?.call("Érvénytelen lejátszási lista link.");
+        return;
+      }
+
+      var videos = await yt.playlists.getVideos(playlistId).toList();
+      int total = videos.length;
+
+      if (total == 0) {
+        onError?.call("A lejátszási lista üres.");
+        return;
+      }
+
+      for (int i = 0; i < total; i++) {
+        var video = videos[i];
+        onSongStart?.call(i + 1, total, video.title);
+
+        // Itt újrahasznosítjuk a meglévő letöltő logikát, de belsőleg
+        await _downloadSingleVideoInternal(yt, video.id.value, (p) {
+          onSongProgress?.call(p);
+        });
+      }
+
+      onDone?.call();
+    } catch (e) {
+      onError?.call(e.toString());
+    } finally {
+      yt.close();
+    }
+  }
+
+  /// Belső segédmetódus egyetlen videó letöltéséhez a lejátszási listából
+  Future<void> _downloadSingleVideoInternal(
+    YoutubeExplode yt,
+    String videoId,
+    void Function(double progress) onProgress,
+  ) async {
+    try {
+      var video = await yt.videos.get(videoId);
+      var manifest = await yt.videos.streamsClient.getManifest(videoId);
+      var audioStreamInfo = manifest.audioOnly.withHighestBitrate();
+      var audioStream = yt.videos.streamsClient.get(audioStreamInfo);
+
+      String safeTitle = video.title.replaceAll(RegExp(r'[\\/><:"|?*]'), '_');
+      safeTitle = safeTitle.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (safeTitle.isEmpty) safeTitle = 'youtube_audio_$videoId';
+
+      int totalBytes = audioStreamInfo.size.totalBytes;
+      int downloadedBytes = 0;
+      final List<int> allBytes = [];
+
+      await for (final chunk in audioStream) {
+        allBytes.addAll(chunk);
+        downloadedBytes += chunk.length;
+        double progress = totalBytes > 0 ? downloadedBytes / totalBytes : 0;
+        onProgress(progress);
+      }
+
+      final Uint8List fileBytes = Uint8List.fromList(allBytes);
+      await FileSaver.instance.saveFile(
+        name: safeTitle,
+        bytes: fileBytes,
+        ext: 'm4a',
+        mimeType: MimeType.aac,
+      );
+
+      try {
+        await _audioQuery.scanMedia('/storage/emulated/0/');
+      } catch (_) {}
+      
+      // Frissítjük a listát minden dal után
+      await fetchSongs();
+    } catch (e) {
+      debugPrint("Hiba a lejátszási lista elemének letöltésekor: $e");
+    }
+  }
+
   Future<void> downloadYoutubeVideo(
     String url, {
     void Function(double progress, String status)? onProgress,

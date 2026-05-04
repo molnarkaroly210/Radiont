@@ -15,7 +15,8 @@ import '../providers/music_provider.dart';
 
 class DownloadWebViewScreen extends StatefulWidget {
   final String? sharedUrl;
-  const DownloadWebViewScreen({super.key, this.sharedUrl});
+  final List<String>? playlistUrls;
+  const DownloadWebViewScreen({super.key, this.sharedUrl, this.playlistUrls});
 
   @override
   State<DownloadWebViewScreen> createState() => _DownloadWebViewScreenState();
@@ -26,6 +27,14 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
   bool _isLoading = true;
   String _pageTitle = 'Zene letöltése';
   InAppWebViewController? _webViewController;
+  int _playlistIndex = 0;
+  String? _currentUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUrl = widget.sharedUrl;
+  }
 
   /// Cookie-k lekérése a WebView-ból a letöltési URL domainhez
   Future<String> _getCookiesForUrl(String url) async {
@@ -104,10 +113,21 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                       ),
                     );
 
-                    // WebView újratöltése
-                    _webViewController?.loadUrl(
-                      urlRequest: URLRequest(url: WebUri('https://v2.y2mate.nu/')),
-                    );
+                    // Következő elem a listából (ha van)
+                    if (widget.playlistUrls != null && _playlistIndex < widget.playlistUrls!.length - 1) {
+                      _playlistIndex++;
+                      setState(() {
+                        _currentUrl = widget.playlistUrls![_playlistIndex];
+                      });
+                      _webViewController?.loadUrl(
+                        urlRequest: URLRequest(url: WebUri('https://v2.y2mate.nu/')),
+                      );
+                    } else {
+                      // WebView újratöltése alapállapotba
+                      _webViewController?.loadUrl(
+                        urlRequest: URLRequest(url: WebUri('https://v2.y2mate.nu/')),
+                      );
+                    }
                   }
                 },
                 onError: (error) {
@@ -414,23 +434,39 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
             });
 
             // Ha van megosztott URL, beillesztjük a keresőmezőbe
-            if (widget.sharedUrl != null && url != null && url.toString().contains('y2mate.nu')) {
+            if (_currentUrl != null && url != null && url.toString().contains('y2mate.nu')) {
               await controller.evaluateJavascript(source: """
                 (function() {
+                  // 1. URL beillesztése és konvertálás indítása
                   var input = document.getElementById('video') || document.querySelector('input[type="text"]');
-                  if (input) {
-                    input.value = '${widget.sharedUrl}';
-                    // Kiváltjuk az input eseményt, hogy a weboldal észlelje a változást
+                  if (input && input.value === '') {
+                    input.value = '$_currentUrl';
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     
-                    // Megpróbáljuk automatikusan elindítani a keresést
                     var btn = document.querySelector('button[type="submit"]') || 
                               document.querySelector('input[type="submit"]') ||
                               document.querySelector('.btn-convert');
                     if (btn) {
-                      btn.click();
+                      setTimeout(() => btn.click(), 1000);
                     }
                   }
+
+                  // 2. Automatikus kattintás a letöltés gombra, ha megjelent
+                  var checkCount = 0;
+                  var checkDownloadBtn = setInterval(function() {
+                    checkCount++;
+                    var dlBtn = document.querySelector('a.btn-download') || 
+                                document.querySelector('.btn-success') ||
+                                document.querySelector('button.btn-success');
+                    
+                    if (dlBtn && dlBtn.offsetParent !== null) {
+                      dlBtn.click();
+                      clearInterval(checkDownloadBtn);
+                    }
+                    
+                    // 60 másodperc után feladjuk, ha nem jön elő
+                    if (checkCount > 30) clearInterval(checkDownloadBtn);
+                  }, 2000);
                 })();
               """);
             }

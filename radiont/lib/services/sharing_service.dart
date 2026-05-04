@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../screens/download_webview_screen.dart';
 
 class SharingService {
@@ -46,7 +47,9 @@ class SharingService {
     if (match != null) {
       String url = match.group(0)!;
       
-      if (_isYouTubeUrl(url)) {
+      if (_isYouTubePlaylistUrl(url)) {
+        _handlePlaylistUrl(url);
+      } else if (_isYouTubeUrl(url)) {
         _navigateToDownloader(url);
       } else {
         _showError("Érvénytelen link");
@@ -64,12 +67,53 @@ class SharingService {
     return ytRegex.hasMatch(url);
   }
 
-  static void _navigateToDownloader(String url) {
+  static bool _isYouTubePlaylistUrl(String url) {
+    return url.contains('list=') || url.contains('/playlist?');
+  }
+
+  static void _handlePlaylistUrl(String url) async {
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    // Mutatunk egy betöltőt, amíg kinyerjük a linkeket
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final yt = YoutubeExplode();
+    try {
+      final playlistId = PlaylistId.parsePlaylistId(url);
+      if (playlistId != null) {
+        final videos = await yt.playlists.getVideos(playlistId).toList();
+        final urls = videos.map((v) => 'https://www.youtube.com/watch?v=${v.id.value}').toList();
+        
+        if (context.mounted) Navigator.pop(context); // Betöltő bezárása
+        
+        if (urls.isNotEmpty) {
+          _navigateToDownloader(urls.first, playlistUrls: urls);
+        } else {
+          _showError("A lejátszási lista üres.");
+        }
+      }
+    } catch (e) {
+      if (context.mounted) Navigator.pop(context);
+      _showError("Hiba a lista feldolgozásakor: $e");
+    } finally {
+      yt.close();
+    }
+  }
+
+  static void _navigateToDownloader(String url, {List<String>? playlistUrls}) {
     // Rövid várakozás, hogy az app biztosan betöltődjön
     Future.delayed(const Duration(milliseconds: 500), () {
       navigatorKey.currentState?.push(
         MaterialPageRoute(
-          builder: (_) => DownloadWebViewScreen(sharedUrl: url),
+          builder: (_) => DownloadWebViewScreen(
+            sharedUrl: url,
+            playlistUrls: playlistUrls,
+          ),
         ),
       );
     });
