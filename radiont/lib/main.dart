@@ -1715,6 +1715,23 @@ class SettingsSheet extends StatelessWidget {
                           ),
                         ]);
                   }),
+                  // === EGYÉB BEÁLLÍTÁSOK ===
+                  const Divider(height: 25, thickness: 0.5),
+                  Padding(
+                      padding: const EdgeInsets.only(left: 10.0, bottom: 5),
+                      child: Text("Egyéb", style: theme.textTheme.titleMedium)),
+                  ListTile(
+                    dense: true,
+                    leading: Icon(Icons.system_update_rounded,
+                        color: theme.primaryColor, size: 22),
+                    title: const Text("Frissítések keresése"),
+                    subtitle: const Text("Új verzió keresése a GitHubon"),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                    onTap: () {
+                      VersionService.checkForUpdates(context, showMessage: true);
+                    },
+                  ),
                   // === ARCHIVÁLT ZENÉK ===
                   Builder(builder: (context) {
                     final mp = context.watch<MusicProvider>();

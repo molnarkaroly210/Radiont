@@ -31,8 +31,68 @@ class VersionService {
   static String? downloadedFilePath;
   static final ValueNotifier<double> downloadProgress = ValueNotifier(0.0);
 
+  static OverlayEntry? _activeToast;
 
-  static Future<void> checkForUpdates(BuildContext context) async {
+  static void _showToast(BuildContext context, String message, {Duration duration = const Duration(seconds: 2), Color? backgroundColor}) {
+    if (!context.mounted) return;
+    
+    if (_activeToast != null) {
+      _activeToast!.remove();
+      _activeToast = null;
+    }
+    
+    final overlay = Overlay.of(context);
+    final theme = Theme.of(context);
+    
+    final entry = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 80, // Alul jelenjen meg
+        left: 20,
+        right: 20,
+        child: SafeArea(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: backgroundColor ?? theme.colorScheme.surface.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: backgroundColor != null 
+                    ? Colors.transparent 
+                    : theme.primaryColor.withValues(alpha: 0.5), 
+                  width: 1
+                ),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black45, blurRadius: 15, offset: Offset(0, 5))
+                ],
+              ),
+              child: Text(
+                message,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    _activeToast = entry;
+    overlay.insert(entry);
+
+    Future.delayed(duration, () {
+      if (_activeToast == entry) {
+        entry.remove();
+        _activeToast = null;
+      }
+    });
+  }
+
+  static Future<void> checkForUpdates(BuildContext context, {bool showMessage = false}) async {
+    if (showMessage && context.mounted) {
+      _showToast(context, "Frissítések keresése...", duration: const Duration(seconds: 1));
+    }
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
@@ -74,12 +134,55 @@ class VersionService {
           _publishedAt = publishedAt;
 
           if (context.mounted) {
+            if (showMessage) {
+              _showToast(
+                context, 
+                "Új verzió található! (v$latestVersion)", 
+                backgroundColor: Colors.blue.shade700.withValues(alpha: 0.9)
+              );
+            }
             _showUpdateDialog(context, currentVersion, latestVersion, apkDownloadUrl, apkSize, fallbackUrl, releaseNotes, publishedAt);
           }
+        } else {
+          if (showMessage && context.mounted) {
+            _showToast(
+              context, 
+              "A Radiont naprakész (v$currentVersion)", 
+              backgroundColor: Colors.green.shade700.withValues(alpha: 0.9)
+            );
+          }
+        }
+      } else {
+        if (showMessage && context.mounted) {
+          _showToast(
+            context, 
+            "Nem sikerült ellenőrizni a frissítéseket.",
+            backgroundColor: Colors.red.shade700.withValues(alpha: 0.9)
+          );
         }
       }
     } catch (e) {
       debugPrint("Verzióellenőrzési hiba: $e");
+      if (showMessage && context.mounted) {
+        String errorMsg = "Nem sikerült ellenőrizni a frissítéseket.";
+        final errorStr = e.toString().toLowerCase();
+        
+        if (errorStr.contains('socket') || errorStr.contains('host lookup') || errorStr.contains('network') || errorStr.contains('connection')) {
+          errorMsg = "Hálózati hiba. Ellenőrizd az internetkapcsolatot!";
+        } else if (errorStr.contains('timeout')) {
+          errorMsg = "Időtúllépés a szerverhez való csatlakozáskor.";
+        } else if (errorStr.contains('format') || errorStr.contains('json')) {
+          errorMsg = "Hiba történt a szerver válaszának feldolgozásakor.";
+        } else if (errorStr.contains('rate limit') || errorStr.contains('403')) {
+          errorMsg = "Túl sok lekérdezés. Próbáld újra később!";
+        }
+
+        _showToast(
+          context, 
+          errorMsg,
+          backgroundColor: Colors.red.shade700.withValues(alpha: 0.9)
+        );
+      }
     }
   }
 
