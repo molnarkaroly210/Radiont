@@ -20,6 +20,7 @@ class VersionService {
   static String _currentVersion = '';
   static String _latestVersion = '';
   static String? _apkUrl;
+  static double _apkSizeMB = 60.0;
   static String _fallbackUrl = '';
   static String _releaseNotes = '';
   static DateTime _publishedAt = DateTime.now();
@@ -37,11 +38,15 @@ class VersionService {
 
         // APK keresése az assetek között
         String? apkDownloadUrl;
+        double apkSize = 60.0;
         final assets = data['assets'] as List?;
         if (assets != null) {
           for (var asset in assets) {
             if ((asset['name'] as String).endsWith('.apk')) {
               apkDownloadUrl = asset['browser_download_url'];
+              if (asset['size'] != null) {
+                apkSize = (asset['size'] as int) / (1024 * 1024);
+              }
               break;
             }
           }
@@ -57,12 +62,13 @@ class VersionService {
           _currentVersion = currentVersion;
           _latestVersion = latestVersion;
           _apkUrl = apkDownloadUrl;
+          _apkSizeMB = apkSize;
           _fallbackUrl = fallbackUrl;
           _releaseNotes = releaseNotes;
           _publishedAt = publishedAt;
 
           if (context.mounted) {
-            _showUpdateDialog(context, currentVersion, latestVersion, apkDownloadUrl, fallbackUrl, releaseNotes, publishedAt);
+            _showUpdateDialog(context, currentVersion, latestVersion, apkDownloadUrl, apkSize, fallbackUrl, releaseNotes, publishedAt);
           }
         }
       }
@@ -74,7 +80,7 @@ class VersionService {
   /// Publikus metódus: a TopBar-ból hívható, megnyitja a frissítési ablakot
   static void showUpdate(BuildContext context) {
     if (updateAvailable) {
-      _showUpdateDialog(context, _currentVersion, _latestVersion, _apkUrl, _fallbackUrl, _releaseNotes, _publishedAt);
+      _showUpdateDialog(context, _currentVersion, _latestVersion, _apkUrl, _apkSizeMB, _fallbackUrl, _releaseNotes, _publishedAt);
     }
   }
 
@@ -98,10 +104,32 @@ class VersionService {
     return false;
   }
 
-  static void _showUpdateDialog(
+  static Future<void> _showUpdateDialog(
     BuildContext context, String current, String latest,
-    String? apkUrl, String fallbackUrl, String notes, DateTime publishedAt,
-  ) {
+    String? apkUrl, double apkSizeMB, String fallbackUrl, String notes, DateTime publishedAt,
+  ) async {
+    int? freeSpaceBytes;
+    String freeSpaceFormatted = 'Ismeretlen';
+    bool hasEnoughSpace = true;
+
+    try {
+      freeSpaceBytes = await _platform.invokeMethod<int>('getFreeSpace');
+      if (freeSpaceBytes != null) {
+        final freeSpaceMB = freeSpaceBytes / (1024 * 1024);
+        hasEnoughSpace = freeSpaceMB >= 150;
+        
+        if (freeSpaceBytes > 1024 * 1024 * 1024) {
+          freeSpaceFormatted = "\${(freeSpaceBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB";
+        } else {
+          freeSpaceFormatted = "\${freeSpaceMB.toStringAsFixed(0)} MB";
+        }
+      }
+    } catch (e) {
+      debugPrint("Tárhely lekérdezése sikertelen: \$e");
+    }
+
+    if (!context.mounted) return;
+
     final confettiController = ConfettiController(duration: const Duration(seconds: 3));
     double downloadProgress = 0;
     bool isDownloading = false;
@@ -139,24 +167,76 @@ class VersionService {
                       Text("v$latest", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 13)),
                     ],
                   ),
-                  const Divider(height: 30),
-                  const Text("Újdonságok:", style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
+                  const Divider(height: 15),
+                  Text("Szükséges hely: ~${apkSizeMB.toStringAsFixed(1)} MB", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  const Divider(height: 15),
+                  const Text("Újdonságok:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 12),
                   Container(
-                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.all(12),
-                    constraints: const BoxConstraints(maxHeight: 150),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).primaryColor.withValues(alpha: 0.12),
+                          Theme.of(context).primaryColor.withValues(alpha: 0.04),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Theme.of(context).primaryColor.withValues(alpha: 0.25),
+                        width: 1.2,
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(14),
+                    constraints: const BoxConstraints(maxHeight: 160),
                     child: SingleChildScrollView(
-                      child: Text(notes, style: const TextStyle(fontSize: 14, color: Colors.white, height: 1.4)),
+                      physics: const BouncingScrollPhysics(),
+                      child: Text(
+                        notes,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.9),
+                          height: 1.5,
+                        ),
+                      ),
                     ),
                   ),
                   if (isDownloading) ...[
-                    const SizedBox(height: 20),
-                    LinearProgressIndicator(
-                      value: downloadProgress,
-                      borderRadius: BorderRadius.circular(10),
-                      backgroundColor: Colors.grey[800],
-                      color: Colors.blue,
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: 28,
+                            left: 0,
+                            right: 0,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: LinearProgressIndicator(
+                                value: downloadProgress,
+                                minHeight: 10,
+                                backgroundColor: Colors.grey[800],
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: AnimatedAlign(
+                              duration: const Duration(milliseconds: 200),
+                              // -1.0 a bal szél, 1.0 a jobb szél. 0.0-1.0 progress-t átkötjük
+                              alignment: Alignment(-1.0 + (downloadProgress * 2), 0),
+                              child: const Icon(Icons.rocket_launch, color: Colors.blue, size: 28),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 5),
                     Center(child: Text(
@@ -170,7 +250,6 @@ class VersionService {
                 if (!isDownloading)
                   TextButton(
                     onPressed: () {
-                      confettiController.dispose();
                       Navigator.pop(context);
                     },
                     child: const Text("Mégse", style: TextStyle(color: Colors.grey)),
@@ -181,8 +260,42 @@ class VersionService {
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: isDownloading ? null : () async {
+                  onPressed: () async {
+                    if (isDownloading) return; // Ha már tölt, nem csinálunk semmit
+
                     if (apkUrl != null) {
+                      // 1. Tárhely ellenőrzés (a már lekérdezett adat alapján)
+                      if (!hasEnoughSpace) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Nincs elég hely a telepítéshez! Szükséges: ~150 MB.")),
+                          );
+                        }
+                        return;
+                      }
+
+                      // 2. Wi-Fi ellenőrzés (natív Kotlin kód hívása)
+                      try {
+                        final isWifi = await _platform.invokeMethod<bool>('isWifiConnected');
+                        if (isWifi == false) {
+                          bool? proceed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: Theme.of(ctx).colorScheme.surface,
+                              title: const Text("Mobilnet figyelmeztetés"),
+                              content: Text("Jelenleg mobilneten vagy. Egy ~${apkSizeMB.toStringAsFixed(1)} MB-os fájl letöltése következik. Biztosan folytatod?"),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Mégse")),
+                                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Folytatás")),
+                              ],
+                            )
+                          );
+                          if (proceed != true) return;
+                        }
+                      } catch (e) {
+                        debugPrint("Wi-Fi ellenőrzés sikertelen: \$e");
+                      }
+
                       // Alkalmazáson belüli letöltés + telepítés
                       setState(() {
                         isDownloading = true;
@@ -200,11 +313,9 @@ class VersionService {
                       // Azonnal bezárjuk az ablakot, hogy ne akadjon meg
                       // amikor az Android átirányít a Beállításokba
                       if (context.mounted) {
-                        confettiController.dispose();
                         Navigator.pop(context);
                       }
                     } else {
-                      confettiController.dispose();
                       if (context.mounted) Navigator.pop(context);
                       await launchUrl(Uri.parse(fallbackUrl), mode: LaunchMode.externalApplication);
                     }
@@ -223,7 +334,13 @@ class VersionService {
           ],
         ),
       ),
-    );
+    ).then((_) {
+      // Várunk 300ms-ot, hogy az ablak bezárási animációja biztosan befejeződjön,
+      // így a ConfettiWidget nem fog hibára futni a törölt controller miatt.
+      Future.delayed(const Duration(milliseconds: 300), () {
+        confettiController.dispose();
+      });
+    });
   }
 
   static Future<bool> _downloadAndInstall(String url, Function(double) onProgress, BuildContext context) async {

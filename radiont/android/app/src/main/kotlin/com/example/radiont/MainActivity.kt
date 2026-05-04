@@ -1,7 +1,12 @@
 package com.example.radiont
 
 import android.content.ContentUris
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Environment
+import android.os.StatFs
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -49,6 +54,27 @@ class MainActivity: AudioServiceActivity() {
                         }
                     } else {
                         result.error("INVALID_PATH", "File path is null", null)
+                    }
+                }
+                "getFreeSpace" -> {
+                    try {
+                        val path = Environment.getExternalStorageDirectory()
+                        val stat = StatFs(path.path)
+                        val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
+                        result.success(freeBytes)
+                    } catch (e: Exception) {
+                        result.error("STORAGE_ERROR", e.message, null)
+                    }
+                }
+                "isWifiConnected" -> {
+                    try {
+                        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                        val network = connectivityManager.activeNetwork
+                        val capabilities = connectivityManager.getNetworkCapabilities(network)
+                        val isWifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                        result.success(isWifi)
+                    } catch (e: Exception) {
+                        result.success(true) // Hiba esetén feltételezzük, hogy van net, hogy ne akasszuk meg
                     }
                 }
                 else -> result.notImplemented()
