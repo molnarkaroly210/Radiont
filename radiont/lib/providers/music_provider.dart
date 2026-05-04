@@ -9,6 +9,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:file_saver/file_saver.dart';
 import '../models/album_model.dart';
 import '../services/streaming_service.dart';
@@ -81,6 +82,10 @@ class MusicProvider extends ChangeNotifier {
   String _listSwipeRightAction = 'add_to_queue'; // Alapértelmezett: hozzáadás
   String _listSwipeLeftAction = 'archive'; // Alapértelmezett: archiválás
 
+  // === Hangerő ===
+  double _systemVolume = 0.5;
+  bool _volumeControllerAvailable = false;
+
   // === Helyi hálózati megosztás ===
   bool _isStreamingEnabled = false;
   String? _streamingUrl;
@@ -109,6 +114,22 @@ class MusicProvider extends ChangeNotifier {
       ),
     );
     _init();
+    _initVolumeController();
+  }
+
+  Future<void> _initVolumeController() async {
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        _systemVolume = await VolumeController().getVolume();
+        VolumeController().listener((volume) {
+          _systemVolume = volume;
+          notifyListeners();
+        });
+        _volumeControllerAvailable = true;
+      }
+    } catch (e) {
+      debugPrint("MusicProvider VolumeController error: $e");
+    }
   }
 
   // ================================================================
@@ -169,6 +190,7 @@ class MusicProvider extends ChangeNotifier {
   double get bassBoostLevel => _bassBoostLevel;
   String get listSwipeRightAction => _listSwipeRightAction;
   String get listSwipeLeftAction => _listSwipeLeftAction;
+  double get systemVolume => _systemVolume;
 
   // Alvásidőzítő
   Duration? get sleepTimerRemaining => _sleepTimerRemaining;
@@ -1101,6 +1123,16 @@ class MusicProvider extends ChangeNotifier {
   void setPitch(double pitch) {
     _playbackPitch = pitch;
     audioPlayer.setPitch(pitch);
+    notifyListeners();
+  }
+
+  void setSystemVolume(double volume) {
+    _systemVolume = volume;
+    if (_volumeControllerAvailable) {
+      try {
+        VolumeController().setVolume(volume);
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
