@@ -11,6 +11,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/music_provider.dart';
 
 class DownloadWebViewScreen extends StatefulWidget {
@@ -56,6 +57,9 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
     // Cookie-k lekérése a WebView-ból
     final cookies = await _getCookiesForUrl(url);
 
+    // Képernyő bekapcsolva tartása letöltés alatt
+    WakelockPlus.enable();
+
     bool cancelled = false;
     if (!context.mounted) return;
     showDialog(
@@ -97,6 +101,8 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
 
                   // Kis várakozás, hogy a felhasználó lássa a "Mentve!" szöveget
                   await Future.delayed(const Duration(milliseconds: 800));
+
+                  WakelockPlus.disable();
 
                   if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                   if (context.mounted) {
@@ -156,6 +162,7 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                   }
                 },
                 onError: (error) {
+                  WakelockPlus.disable();
                   if (cancelled) return;
                   if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                   if (context.mounted) {
@@ -240,7 +247,11 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                         const SizedBox(height: 15),
                         if (dlProgress < 1.0)
                           TextButton(
-                            onPressed: () { cancelled = true; Navigator.of(dialogContext).pop(); },
+                            onPressed: () { 
+                              cancelled = true; 
+                              WakelockPlus.disable();
+                              Navigator.of(dialogContext).pop(); 
+                            },
                             child: Text("Mégse", style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
                           ),
                       ],

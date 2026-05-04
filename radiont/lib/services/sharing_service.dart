@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import 'package:provider/provider.dart';
 import '../screens/download_webview_screen.dart';
+import '../widgets/playlist_selection_dialog.dart';
+import '../providers/music_provider.dart';
 
 class SharingService {
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -86,13 +89,26 @@ class SharingService {
     try {
       final playlistId = PlaylistId.parsePlaylistId(url);
       if (playlistId != null) {
+        final playlist = await yt.playlists.get(playlistId);
         final videos = await yt.playlists.getVideos(playlistId).toList();
-        final urls = videos.map((v) => 'https://www.youtube.com/watch?v=${v.id.value}').toList();
         
         if (context.mounted) Navigator.pop(context); // Betöltő bezárása
         
-        if (urls.isNotEmpty) {
-          _navigateToDownloader(urls.first, playlistUrls: urls);
+        if (videos.isNotEmpty) {
+          if (context.mounted) {
+            final List<String>? selectedUrls = await showDialog<List<String>>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => PlaylistSelectionDialog(
+                videos: videos,
+                playlistTitle: playlist.title,
+              ),
+            );
+
+            if (selectedUrls != null && selectedUrls.isNotEmpty) {
+              _navigateToDownloader(selectedUrls.first, playlistUrls: selectedUrls);
+            }
+          }
         } else {
           _showError("A lejátszási lista üres.");
         }
@@ -105,7 +121,39 @@ class SharingService {
     }
   }
 
-  static void _navigateToDownloader(String url, {List<String>? playlistUrls}) {
+  static void _navigateToDownloader(String url, {List<String>? playlistUrls}) async {
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    // Ha egyedi link, megnézzük, megvan-e már
+    if (playlistUrls == null) {
+      final yt = YoutubeExplode();
+      try {
+        final video = await yt.videos.get(url);
+        if (context.mounted && context.read<MusicProvider>().isDuplicate(video.title)) {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Már megvan"),
+              content: Text("Úgy tűnik, hogy a(z) '${video.title}' már szerepel a könyvtáradban.\n\nSzeretnéd ennek ellenére letölteni?"),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Mégse")),
+                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Letöltés")),
+              ],
+            ),
+          );
+          if (confirm != true) {
+            yt.close();
+            return;
+          }
+        }
+      } catch (_) {
+        // Hiba esetén (pl. privát videó) engedjük tovább a WebView-ra, ott majd kiderül
+      } finally {
+        yt.close();
+      }
+    }
+
     // Rövid várakozás, hogy az app biztosan betöltődjön
     Future.delayed(const Duration(milliseconds: 500), () {
       navigatorKey.currentState?.push(

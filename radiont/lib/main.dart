@@ -190,18 +190,20 @@ class RadioProvider extends ChangeNotifier {
       return;
     }
 
-    final audioSources = activeStations.map((station) {
+    final audioSources = List.generate(activeStations.length, (index) {
+      final station = activeStations[index];
+      final safeId = station.id.isNotEmpty ? station.id : 'radio_${station.name.replaceAll(RegExp(r'\s+'), '')}';
       return AudioSource.uri(
         Uri.parse(station.streamUrl),
         tag: MediaItem(
-          id: station.id,
+          id: '${safeId}_$index',
           album: "Radiont",
           title: station.name,
           artist: station.nowPlaying,
           artUri: Uri.parse(station.imageUrl),
         ),
       );
-    }).toList();
+    });
 
     try {
       await _audioPlayer.setAudioSource(
@@ -298,6 +300,11 @@ class RadioProvider extends ChangeNotifier {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Értesítési engedély kérése (Android 13+ esetén szükséges a vezérlőkhöz)
+  if (Platform.isAndroid) {
+    await Permission.notification.request();
+  }
 
   // === PRIVÁT DNS BEÁLLÍTÁSA ===
   // Az alkalmazás saját DNS-feloldót használ (Cloudflare 1.1.1.1 DoH)

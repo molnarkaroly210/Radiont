@@ -421,6 +421,7 @@ class MusicProvider extends ChangeNotifier {
   Future<void> requestPermission() async {
     if (_isRequestingPermission) return;
     _isRequestingPermission = true;
+    _isLoading = true;
     notifyListeners();
 
     try {
@@ -435,16 +436,28 @@ class MusicProvider extends ChangeNotifier {
 
       _hasPermission =
           status.isGranted || await Permission.manageExternalStorage.isGranted;
+      
       if (_hasPermission) {
         await fetchSongs();
-      } else {
-        notifyListeners();
       }
     } catch (_) {
       // Permission already running – ignoráljuk
     } finally {
       _isRequestingPermission = false;
     }
+  }
+
+  /// Ellenőrzi, hogy egy zene megvan-e már a könyvtárban cím alapján
+  bool isDuplicate(String title) {
+    // Tisztított cím összehasonlításhoz (kisbetű, írásjelek nélkül)
+    String clean(String s) => s.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
+    final cleanTitle = clean(title);
+    
+    return _songs.any((song) {
+      final sTitle = clean(song.title);
+      // Ha a cím pontosan egyezik, vagy a keresett cím benne van a meglévőben (vagy fordítva)
+      return sTitle == cleanTitle || sTitle.contains(cleanTitle) || cleanTitle.contains(sTitle);
+    });
   }
 
   Future<void> fetchSongs() async {
@@ -821,6 +834,19 @@ class MusicProvider extends ChangeNotifier {
     final displayed = displayedSongs;
     if (displayed.isEmpty || index >= displayed.length) return;
 
+    // Ha ugyanaz a lista és már van betöltve forrás, csak ugrunk (stabilabb az értesítés sávnak)
+    if (_queue.length == displayed.length && _currentPlayingSongId != null && audioPlayer.audioSource != null) {
+      if (_queue.first.id == displayed.first.id && _queue.last.id == displayed.last.id) {
+        _currentIndex = index;
+        _currentPlayingSongId = displayed[index].id;
+        _incrementPlayCount(_currentPlayingSongId!);
+        await audioPlayer.seek(Duration.zero, index: index);
+        audioPlayer.play();
+        notifyListeners();
+        return;
+      }
+    }
+
     // Hallgatási számláló növelése
     _incrementPlayCount(displayed[index].id);
 
@@ -835,18 +861,19 @@ class MusicProvider extends ChangeNotifier {
 
   /// Queue betöltése a lejátszóba
   Future<void> _loadQueueToPlayer(int startIndex) async {
-    final audioSources = _queue.map((song) {
+    final audioSources = List.generate(_queue.length, (index) {
+      final song = _queue[index];
       return AudioSource.uri(
         Uri.parse(song.uri!),
         tag: MediaItem(
-          id: song.id.toString(),
+          id: '${song.id}_$index',
           album: song.album ?? "Ismeretlen Album",
           title: song.title,
           artist: song.artist ?? "Ismeretlen Előadó",
           artUri: null,
         ),
       );
-    }).toList();
+    });
 
     try {
       await audioPlayer.setAudioSource(
@@ -854,6 +881,8 @@ class MusicProvider extends ChangeNotifier {
         initialIndex: startIndex,
         initialPosition: Duration.zero,
       );
+      // Mindig lehessen léptetni az értesítési sávban
+      await audioPlayer.setLoopMode(LoopMode.all);
       audioPlayer.play();
     } catch (e) {
       if (kDebugMode) print("Hiba a lejátszás közben: $e");
