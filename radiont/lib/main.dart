@@ -1457,7 +1457,7 @@ class SettingsSheet extends StatelessWidget {
                               : "Zenék elérése böngészőből a helyi hálózaton",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isStreamingEnabled,
-                      onChanged: (_) => musicProvider.toggleStreaming(radioProvider),
+                      onChanged: (_) => musicProvider.toggleStreaming(radioProvider, themeProvider),
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),
@@ -1468,7 +1468,7 @@ class SettingsSheet extends StatelessWidget {
                       subtitle: Text("Jelszó kérése a webes felületen",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isStreamingPinEnabled,
-                      onChanged: (val) => musicProvider.setStreamingPinEnabled(val, radioProvider),
+                      onChanged: (val) => musicProvider.setStreamingPinEnabled(val, radioProvider, themeProvider),
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),
@@ -1495,7 +1495,7 @@ class SettingsSheet extends StatelessWidget {
                               ElevatedButton(
                                 onPressed: () {
                                   if (controller.text.length >= 4) {
-                                    musicProvider.setStreamingPin(controller.text, radioProvider);
+                                    musicProvider.setStreamingPin(controller.text, radioProvider, themeProvider);
                                     Navigator.pop(ctx);
                                   }
                                 },

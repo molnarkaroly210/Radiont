@@ -1567,7 +1567,7 @@ class MusicProvider extends ChangeNotifier {
   }
 
   /// Helyi hálózati megosztás váltása
-  Future<void> toggleStreaming(dynamic radioProvider) async {
+  Future<void> toggleStreaming(dynamic radioProvider, dynamic themeProvider) async {
     final service = StreamingService();
     if (_isStreamingEnabled) {
       await service.stopServer();
@@ -1578,6 +1578,7 @@ class MusicProvider extends ChangeNotifier {
         await service.startServer(
           this,
           radioProvider,
+          themeProvider,
           pinEnabled: _isStreamingPinEnabled,
           pin: _streamingPin,
         );
@@ -1591,24 +1592,24 @@ class MusicProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setStreamingPinEnabled(bool enabled, dynamic radioProvider) async {
+  void setStreamingPinEnabled(bool enabled, dynamic radioProvider, dynamic themeProvider) async {
     _isStreamingPinEnabled = enabled;
     await prefs.setBool('streaming_pin_enabled', enabled);
     // Ha fut a szerver, újraindítjuk az új beállításokkal
     if (_isStreamingEnabled) {
-      await toggleStreaming(radioProvider); // Stop
-      await toggleStreaming(radioProvider); // Start
+      await toggleStreaming(radioProvider, themeProvider); // Stop
+      await toggleStreaming(radioProvider, themeProvider); // Start
     }
     notifyListeners();
   }
 
-  void setStreamingPin(String pin, dynamic radioProvider) async {
+  void setStreamingPin(String pin, dynamic radioProvider, dynamic themeProvider) async {
     _streamingPin = pin;
     await prefs.setString('streaming_pin', pin);
     // Ha fut a szerver és be van kapcsolva a PIN, újraindítjuk
     if (_isStreamingEnabled && _isStreamingPinEnabled) {
-      await toggleStreaming(radioProvider); // Stop
-      await toggleStreaming(radioProvider); // Start
+      await toggleStreaming(radioProvider, themeProvider); // Stop
+      await toggleStreaming(radioProvider, themeProvider); // Start
     }
     notifyListeners();
   }
