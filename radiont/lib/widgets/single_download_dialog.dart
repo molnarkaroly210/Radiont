@@ -5,7 +5,8 @@ import '../providers/music_provider.dart';
 
 class SingleDownloadDialog extends StatefulWidget {
   final String url;
-  const SingleDownloadDialog({super.key, required this.url});
+  final bool isWebDownload;
+  const SingleDownloadDialog({super.key, required this.url, this.isWebDownload = false});
 
   @override
   State<SingleDownloadDialog> createState() => _SingleDownloadDialogState();
@@ -26,6 +27,7 @@ class _SingleDownloadDialogState extends State<SingleDownloadDialog> {
 
     context.read<MusicProvider>().downloadYoutubeVideo(
       widget.url,
+      isWebDownload: widget.isWebDownload,
       onProgress: (progress, status) {
         if (mounted) {
           setState(() {
@@ -40,6 +42,13 @@ class _SingleDownloadDialogState extends State<SingleDownloadDialog> {
             _isDone = true;
             _fileName = fileName;
           });
+          
+          // Ha webes letöltés volt, 2 másodperc után bezárjuk és visszalépünk
+          if (widget.isWebDownload) {
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) Navigator.pop(context);
+            });
+          }
         }
       },
       onError: (err) {

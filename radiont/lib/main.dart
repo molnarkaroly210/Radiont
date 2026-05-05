@@ -416,8 +416,35 @@ class _MainScreenState extends State<MainScreen> {
 
     // Verzióellenőrzés indításkor
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MusicProvider>().isMusicModeActive = initialMode;
+      final musicProvider = context.read<MusicProvider>();
+      musicProvider.isMusicModeActive = initialMode;
       VersionService.checkForUpdates(context);
+
+      // Figyeljük a webes távirányítóról érkező letöltési kéréseket
+      musicProvider.onWebDownloadRequest.listen((url) {
+        if (mounted) {
+          // Visszalépés a listára (bezárunk minden modal-t)
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          }
+          
+          // Biztosítjuk, hogy Zene módban legyünk
+          if (!musicProvider.isMusicModeActive) {
+            _toggleMode();
+          }
+
+          // Megnyitjuk a webview letöltő képernyőt
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DownloadWebViewScreen(
+                sharedUrl: url,
+                isWebDownload: true,
+              ),
+            ),
+          );
+        }
+      });
     });
   }
 
@@ -1434,6 +1461,52 @@ class SettingsSheet extends StatelessWidget {
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),
+                  SwitchListTile(
+                      title: Text("PIN védelem",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("Jelszó kérése a webes felületen",
+                          style: theme.textTheme.bodyMedium),
+                      value: musicProvider.isStreamingPinEnabled,
+                      onChanged: (val) => musicProvider.setStreamingPinEnabled(val, radioProvider),
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
+                  if (musicProvider.isStreamingPinEnabled)
+                    ListTile(
+                      title: const Text("PIN kód beállítása"),
+                      subtitle: Text("Jelenlegi: ${musicProvider.streamingPin}"),
+                      leading: Icon(Icons.password_rounded, color: theme.primaryColor, size: 22),
+                      trailing: const Icon(Icons.edit_rounded, size: 18),
+                      onTap: () async {
+                        final controller = TextEditingController(text: musicProvider.streamingPin);
+                        await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("PIN kód beállítása"),
+                            content: TextField(
+                              controller: controller,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
+                              decoration: const InputDecoration(labelText: "PIN (4-6 számjegy)", hintText: "1234"),
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Mégse")),
+                              ElevatedButton(
+                                onPressed: () {
+                                  if (controller.text.length >= 4) {
+                                    musicProvider.setStreamingPin(controller.text, radioProvider);
+                                    Navigator.pop(ctx);
+                                  }
+                                },
+                                child: const Text("Mentés"),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
                   if (musicProvider.isStreamingEnabled)
                     Padding(
                       padding: const EdgeInsets.only(left: 10, bottom: 10),
@@ -1456,6 +1529,36 @@ class SettingsSheet extends StatelessWidget {
                         ),
                       ),
                     ),
+                  SwitchListTile(
+                      title: Text("YouTube Link Bedobó",
+                          style: theme.textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.normal)),
+                      subtitle: Text("YouTube linkek fogadása a webes felületről",
+                          style: theme.textTheme.bodyMedium),
+                      value: musicProvider.isWebRemoteDownloadEnabled,
+                      onChanged: (val) async {
+                        if (val) {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Figyelem"),
+                              content: const Text("A webes letöltő csak akkor elérhető, ha az alkalmazás nyitva van a Zene fülön, és a kijelző be van kapcsolva.\n\nBekapcsolás esetén a telefon képernyője folyamatosan ébren marad. Biztosan bekapcsolod?"),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Mégse")),
+                                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Bekapcsolás")),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            musicProvider.setWebRemoteDownloadEnabled(true);
+                          }
+                        } else {
+                          musicProvider.setWebRemoteDownloadEnabled(false);
+                        }
+                      },
+                      activeThumbColor: theme.primaryColor,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10)),
                   const Divider(height: 25, thickness: 0.5),
                   Padding(
                       padding: const EdgeInsets.only(left: 10.0),

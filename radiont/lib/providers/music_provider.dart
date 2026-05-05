@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:file_saver/file_saver.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/album_model.dart';
 import '../services/streaming_service.dart';
 
@@ -24,10 +25,11 @@ class MusicProvider extends ChangeNotifier {
   late final AudioPlayer audioPlayer;
   bool _equalizerEnabled = false;
   final OnAudioQuery _audioQuery = OnAudioQuery();
-  static final _platform = MethodChannel('com.example.radiont/media_manager');
+  static const _platform = MethodChannel('com.example.radiont/media_manager');
 
   // === Alapvető zenelista ===
   List<SongModel> _songs = [];
+  int _lastLibraryUpdate = DateTime.now().millisecondsSinceEpoch;
   bool _isLoading = true;
   bool _hasPermission = false;
   int _currentIndex = 0;
@@ -41,6 +43,7 @@ class MusicProvider extends ChangeNotifier {
   Set<int> _archivedSongIds = {};
   String?
       _selectedAlbumId; // null = Összes, "uncategorized", "most_played", vagy album id
+  final _webDownloadRequestController = StreamController<String>.broadcast();
 
   // === Keresés & Rendezés ===
   String _searchQuery = '';
@@ -90,10 +93,16 @@ class MusicProvider extends ChangeNotifier {
   bool _isStreamingEnabled = false;
   String? _streamingUrl;
   bool _isMusicModeActive = false;
+  bool _isStreamingPinEnabled = false;
+  String _streamingPin = '1234';
+  bool _isWebRemoteDownloadEnabled = true;
 
   bool get isStreamingEnabled => _isStreamingEnabled;
   String? get streamingUrl => _streamingUrl;
   bool get isMusicModeActive => _isMusicModeActive;
+  bool get isStreamingPinEnabled => _isStreamingPinEnabled;
+  String get streamingPin => _streamingPin;
+  bool get isWebRemoteDownloadEnabled => _isWebRemoteDownloadEnabled;
 
   set isMusicModeActive(bool value) {
     if (_isMusicModeActive != value) {
@@ -202,6 +211,8 @@ class MusicProvider extends ChangeNotifier {
   // Hallgatási statisztika
   Map<int, int> get playCounts => _playCounts;
   int getPlayCount(int songId) => _playCounts[songId] ?? 0;
+  int get lastLibraryUpdate => _lastLibraryUpdate;
+  Stream<String> get onWebDownloadRequest => _webDownloadRequestController.stream;
 
   /// Szűrt + rendezett zenelista (ez jelenik meg a UI-ban)
   List<SongModel> get displayedSongs {
@@ -378,6 +389,9 @@ class MusicProvider extends ChangeNotifier {
     _isLoudnessEnhancerEnabled =
         prefs.getBool('music_loudness_enhancer') ?? false;
     _bassBoostLevel = prefs.getDouble('music_bass_boost') ?? 0.0;
+    _isStreamingPinEnabled = prefs.getBool('streaming_pin_enabled') ?? false;
+    _streamingPin = prefs.getString('streaming_pin') ?? '1234';
+    _isWebRemoteDownloadEnabled = prefs.getBool('web_remote_download_enabled') ?? true;
 
     // Alkalmazzuk az effekteket
     _applyLoudnessEnhancer();
@@ -525,6 +539,7 @@ class MusicProvider extends ChangeNotifier {
       );
 
       _songs = allSongs;
+      _lastLibraryUpdate = DateTime.now().millisecondsSinceEpoch;
     } catch (e) {
       debugPrint("Hiba a dalok lekérésekor: $e");
     } finally {
@@ -1361,6 +1376,7 @@ class MusicProvider extends ChangeNotifier {
 
   Future<void> downloadYoutubeVideo(
     String url, {
+    bool isWebDownload = false,
     void Function(double progress, String status)? onProgress,
     void Function(String fileName)? onDone,
     void Function(String error)? onError,
@@ -1446,18 +1462,50 @@ class MusicProvider extends ChangeNotifier {
             notifyListeners();
 
             final Uint8List fileBytes = Uint8List.fromList(allBytes);
-            await FileSaver.instance.saveFile(
-              name: safeTitle,
-              bytes: fileBytes,
-              ext: 'm4a',
-              mimeType: MimeType.aac,
-            );
+            
+            String filePath = "";
+            if (isWebDownload) {
+              final directory = Directory('/storage/emulated/0/Music/Radiont/WebDownloads');
+              if (!await directory.exists()) {
+                await directory.create(recursive: true);
+              }
+              filePath = '${directory.path}/$safeTitle.m4a';
+              final file = File(filePath);
+              await file.writeAsBytes(fileBytes);
+            } else {
+              await FileSaver.instance.saveFile(
+                name: safeTitle,
+                bytes: fileBytes,
+                ext: 'm4a',
+                mimeType: MimeType.aac,
+              );
+            }
 
             try {
-              await _audioQuery.scanMedia('/storage/emulated/0/');
+              if (filePath.isNotEmpty) {
+                await _audioQuery.scanMedia(filePath);
+              } else {
+                await _audioQuery.scanMedia('/storage/emulated/0/');
+              }
             } catch (_) {}
-
+            
             await fetchSongs();
+
+            if (isWebDownload && filePath.isNotEmpty) {
+              // Hozzáadás a "Web Downloads" albumhoz
+              final newSong = _songs.where((s) => s.data == filePath).firstOrNull;
+              if (newSong != null) {
+                Album? webAlbum = _albums.where((a) => a.id == 'web_downloads').firstOrNull;
+                if (webAlbum == null) {
+                  webAlbum = Album(id: 'web_downloads', name: 'Web Downloads', hue: 0);
+                  _albums.add(webAlbum);
+                }
+                if (!webAlbum.songIds.contains(newSong.id)) {
+                  webAlbum.songIds.add(newSong.id);
+                  await _saveAlbums();
+                }
+              }
+            }
 
             onDone?.call("$safeTitle.m4a");
             if (!completer.isCompleted) completer.complete();
@@ -1485,6 +1533,39 @@ class MusicProvider extends ChangeNotifier {
     }
   }
 
+  void setWebRemoteDownloadEnabled(bool enabled) async {
+    _isWebRemoteDownloadEnabled = enabled;
+    await prefs.setBool('web_remote_download_enabled', enabled);
+    if (enabled) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+    notifyListeners();
+  }
+
+  /// YouTube letöltés a webes távirányítóról
+  Future<void> downloadFromWebRemote(String url) async {
+    if (!_isWebRemoteDownloadEnabled || url.isEmpty) return;
+    _webDownloadRequestController.add(url);
+  }
+
+  /// Segédfüggvény a webes letöltések albumhoz adásához
+  Future<void> addWebDownloadToAlbum(String filePath) async {
+    final newSong = _songs.where((s) => s.data == filePath).firstOrNull;
+    if (newSong != null) {
+      Album? webAlbum = _albums.where((a) => a.id == 'web_downloads').firstOrNull;
+      if (webAlbum == null) {
+        webAlbum = Album(id: 'web_downloads', name: 'Web Downloads', hue: 0);
+        _albums.add(webAlbum);
+      }
+      if (!webAlbum.songIds.contains(newSong.id)) {
+        webAlbum.songIds.add(newSong.id);
+        await _saveAlbums();
+      }
+    }
+  }
+
   /// Helyi hálózati megosztás váltása
   Future<void> toggleStreaming(dynamic radioProvider) async {
     final service = StreamingService();
@@ -1494,13 +1575,40 @@ class MusicProvider extends ChangeNotifier {
       _streamingUrl = null;
     } else {
       try {
-        await service.startServer(this, radioProvider);
+        await service.startServer(
+          this,
+          radioProvider,
+          pinEnabled: _isStreamingPinEnabled,
+          pin: _streamingPin,
+        );
         _isStreamingEnabled = true;
         _streamingUrl = service.url;
       } catch (e) {
         debugPrint('Streaming hiba: $e');
         _isStreamingEnabled = false;
       }
+    }
+    notifyListeners();
+  }
+
+  void setStreamingPinEnabled(bool enabled, dynamic radioProvider) async {
+    _isStreamingPinEnabled = enabled;
+    await prefs.setBool('streaming_pin_enabled', enabled);
+    // Ha fut a szerver, újraindítjuk az új beállításokkal
+    if (_isStreamingEnabled) {
+      await toggleStreaming(radioProvider); // Stop
+      await toggleStreaming(radioProvider); // Start
+    }
+    notifyListeners();
+  }
+
+  void setStreamingPin(String pin, dynamic radioProvider) async {
+    _streamingPin = pin;
+    await prefs.setString('streaming_pin', pin);
+    // Ha fut a szerver és be van kapcsolva a PIN, újraindítjuk
+    if (_isStreamingEnabled && _isStreamingPinEnabled) {
+      await toggleStreaming(radioProvider); // Stop
+      await toggleStreaming(radioProvider); // Start
     }
     notifyListeners();
   }

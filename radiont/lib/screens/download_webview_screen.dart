@@ -17,7 +17,8 @@ import '../providers/music_provider.dart';
 class DownloadWebViewScreen extends StatefulWidget {
   final String? sharedUrl;
   final List<String>? playlistUrls;
-  const DownloadWebViewScreen({super.key, this.sharedUrl, this.playlistUrls});
+  final bool isWebDownload;
+  const DownloadWebViewScreen({super.key, this.sharedUrl, this.playlistUrls, this.isWebDownload = false});
 
   @override
   State<DownloadWebViewScreen> createState() => _DownloadWebViewScreenState();
@@ -94,9 +95,13 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
                   try { await OnAudioQuery().scanMedia(filePath); } catch (_) {}
                   try { await OnAudioQuery().scanMedia('/storage/emulated/0/'); } catch (_) {}
 
-                  // Zenelista frissítése
+                  // Zenelista frissítése és albumhoz adás
                   if (context.mounted) {
-                    context.read<MusicProvider>().fetchSongs();
+                    final mp = context.read<MusicProvider>();
+                    await mp.fetchSongs();
+                    if (widget.isWebDownload) {
+                      await mp.addWebDownloadToAlbum(filePath);
+                    }
                   }
 
                   // Kis várakozás, hogy a felhasználó lássa a "Mentve!" szöveget
@@ -104,7 +109,14 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
 
                   WakelockPlus.disable();
 
-                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop(); // progress dialog bezárása
+                  
+                  // Ha webes bedobás volt, az egész képernyőt bezárjuk
+                  if (widget.isWebDownload && context.mounted) {
+                    Navigator.of(context).pop();
+                    return; // kilépünk, nincs snackbar vagy következő videó
+                  }
+
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -359,6 +371,17 @@ class _DownloadWebViewScreenState extends State<DownloadWebViewScreen> {
 
   /// Letöltési mappa meghatározása (Music > Radiont)
   Future<String> _getDownloadDirectory() async {
+    // Ha webes letöltés, akkor egy külön mappába tesszük
+    if (widget.isWebDownload) {
+      final webDir = Directory('/storage/emulated/0/Music/Radiont/WebDownloads');
+      if (!webDir.existsSync()) {
+        webDir.createSync(recursive: true);
+      }
+      if (webDir.existsSync()) {
+        return webDir.path;
+      }
+    }
+
     // Először próbáljuk a Music mappát
     final musicDir = Directory('/storage/emulated/0/Music/Radiont');
     if (!musicDir.existsSync()) {
