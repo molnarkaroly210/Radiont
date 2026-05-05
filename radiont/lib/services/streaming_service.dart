@@ -117,6 +117,7 @@ class StreamingService {
           'title': currentStation.name,
           'artist': currentStation.nowPlaying,
           'isPlaying': radioProvider.audioPlayer.playing,
+          'url': currentStation.streamUrl,
         };
         status['position'] = 0;
         status['duration'] = 0;
@@ -156,9 +157,35 @@ class StreamingService {
         final song = musicProvider.songs.firstWhere((s) => s.id == id);
         final file = File(song.data);
         if (await file.exists()) {
+          final length = await file.length();
+          final rangeHeader = request.headers['range'];
+
+          if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+            final parts = rangeHeader.substring(6).split('-');
+            final start = int.tryParse(parts[0]) ?? 0;
+            final end = parts.length > 1 && parts[1].isNotEmpty ? int.tryParse(parts[1]) : length - 1;
+            
+            if (end == null || start >= length || end >= length || start > end) {
+              return Response(416, headers: {'Content-Range': 'bytes */$length'});
+            }
+
+            final stream = file.openRead(start, end + 1);
+            return Response(
+              206,
+              body: stream,
+              headers: {
+                'Content-Type': 'audio/mpeg',
+                'Accept-Ranges': 'bytes',
+                'Content-Range': 'bytes $start-$end/$length',
+                'Content-Length': '${end - start + 1}',
+              },
+            );
+          }
+
           return Response.ok(file.openRead(), headers: {
             'Content-Type': 'audio/mpeg',
             'Accept-Ranges': 'bytes',
+            'Content-Length': '$length',
           });
         }
       }
@@ -782,6 +809,8 @@ class StreamingService {
             isGuest = true;
             localStorage.setItem('radiont_is_guest', 'true');
             pinOverlay.style.display = 'none';
+            // Megpróbáljuk feloldani az autoplay korlátozást
+            audio.play().catch(e => {}); 
             checkStatus();
         }
 
@@ -1032,7 +1061,7 @@ class StreamingService {
                      topBar.style.display = 'none';
                 }
                 
-                const controlsToHide = document.querySelectorAll('.controls-row, #volume-slider, .mode-switcher, #yt-dropper-card, #phone-now-playing, #progress-area');
+                const controlsToHide = document.querySelectorAll('.controls-row, #volume-slider, .mode-switcher, #yt-dropper-card, #phone-now-playing, #progress-area, .search-box, #music-library-section');
                 controlsToHide.forEach(el => {
                     if (!el) return;
                     el.style.display = isGuest ? 'none' : '';
@@ -1076,6 +1105,38 @@ class StreamingService {
                     playerMainCard.style.display = 'none';
                 } else {
                     playerMainCard.style.display = 'block';
+                }
+                
+                // Vendég szinkronizáció
+                if (isGuest && data.nowPlaying) {
+                    let expectedSrc = currentMode === 'music' ? getAuthUrl(`/stream/${data.nowPlaying.id}`) : data.nowPlaying.url;
+                    let displayTitle = currentMode === 'music' 
+                        ? `${data.nowPlaying.artist} - ${data.nowPlaying.title}`
+                        : data.nowPlaying.title;
+                    
+                    const currentSrc = audio.src || '';
+                    const isSameSrc = currentSrc.endsWith(expectedSrc) || currentSrc === expectedSrc;
+
+                    if (!isSameSrc) {
+                        audio.src = expectedSrc;
+                        browserNowPlaying.innerText = displayTitle;
+                        browserPlayerCard.style.display = 'block';
+                        playerMainCard.style.display = 'block';
+                    }
+
+                    const serverIsPlaying = data.isPlaying;
+                    if (serverIsPlaying && audio.paused) {
+                        audio.play().catch(e => console.log("Várakozás felhasználói interakcióra..."));
+                    } else if (!serverIsPlaying && !audio.paused) {
+                        audio.pause();
+                    }
+
+                    if (currentMode === 'music' && serverIsPlaying && data.position) {
+                        const expectedTime = data.position / 1000;
+                        if (Math.abs(audio.currentTime - expectedTime) > 2.0) {
+                            audio.currentTime = expectedTime;
+                        }
+                    }
                 }
                 
                 if (currentMode === 'radio' && !isGuest) {
