@@ -95,6 +95,7 @@ class MusicProvider extends ChangeNotifier {
   bool _isMusicModeActive = false;
   bool _isStreamingPinEnabled = false;
   String _streamingPin = '1234';
+  bool _isStreamingGuestModeEnabled = false;
   bool _isWebRemoteDownloadEnabled = true;
 
   bool get isStreamingEnabled => _isStreamingEnabled;
@@ -102,6 +103,7 @@ class MusicProvider extends ChangeNotifier {
   bool get isMusicModeActive => _isMusicModeActive;
   bool get isStreamingPinEnabled => _isStreamingPinEnabled;
   String get streamingPin => _streamingPin;
+  bool get isStreamingGuestModeEnabled => _isStreamingGuestModeEnabled;
   bool get isWebRemoteDownloadEnabled => _isWebRemoteDownloadEnabled;
 
   set isMusicModeActive(bool value) {
@@ -391,6 +393,7 @@ class MusicProvider extends ChangeNotifier {
     _bassBoostLevel = prefs.getDouble('music_bass_boost') ?? 0.0;
     _isStreamingPinEnabled = prefs.getBool('streaming_pin_enabled') ?? false;
     _streamingPin = prefs.getString('streaming_pin') ?? '1234';
+    _isStreamingGuestModeEnabled = prefs.getBool('streaming_guest_mode_enabled') ?? false;
     _isWebRemoteDownloadEnabled = prefs.getBool('web_remote_download_enabled') ?? true;
 
     // Alkalmazzuk az effekteket
@@ -1581,6 +1584,7 @@ class MusicProvider extends ChangeNotifier {
           themeProvider,
           pinEnabled: _isStreamingPinEnabled,
           pin: _streamingPin,
+          guestModeEnabled: _isStreamingGuestModeEnabled,
         );
         _isStreamingEnabled = true;
         _streamingUrl = service.url;
@@ -1608,6 +1612,17 @@ class MusicProvider extends ChangeNotifier {
     await prefs.setString('streaming_pin', pin);
     // Ha fut a szerver és be van kapcsolva a PIN, újraindítjuk
     if (_isStreamingEnabled && _isStreamingPinEnabled) {
+      await toggleStreaming(radioProvider, themeProvider); // Stop
+      await toggleStreaming(radioProvider, themeProvider); // Start
+    }
+    notifyListeners();
+  }
+
+  void setStreamingGuestModeEnabled(bool enabled, dynamic radioProvider, dynamic themeProvider) async {
+    _isStreamingGuestModeEnabled = enabled;
+    await prefs.setBool('streaming_guest_mode_enabled', enabled);
+    // Ha fut a szerver, újraindítjuk
+    if (_isStreamingEnabled) {
       await toggleStreaming(radioProvider, themeProvider); // Stop
       await toggleStreaming(radioProvider, themeProvider); // Start
     }

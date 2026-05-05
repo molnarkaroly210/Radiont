@@ -19,14 +19,16 @@ class StreamingService {
   bool _isRunning = false;
   bool _pinEnabled = false;
   String? _pin;
+  bool _guestModeEnabled = false;
 
   bool get isRunning => _isRunning;
   String? get url => _ip != null ? 'http://$_ip:$port' : null;
 
-  Future<void> startServer(MusicProvider musicProvider, dynamic radioProvider, ThemeProvider themeProvider, {bool pinEnabled = false, String? pin}) async {
+  Future<void> startServer(MusicProvider musicProvider, dynamic radioProvider, ThemeProvider themeProvider, {bool pinEnabled = false, String? pin, bool guestModeEnabled = false}) async {
     if (_isRunning) return;
     _pinEnabled = pinEnabled;
     _pin = pin;
+    _guestModeEnabled = guestModeEnabled;
 
     try {
       final info = NetworkInfo();
@@ -62,21 +64,34 @@ class StreamingService {
     }
 
     // PIN ellenőrzés az API hívásokhoz
+    bool isAuthenticated = true;
     if (_pinEnabled && _pin != null) {
       final queryPin = request.url.queryParameters['pin'];
       if (queryPin != _pin) {
-        if (path == 'status') {
-          return Response.ok(jsonEncode({'isReady': true, 'authRequired': true}), 
-              headers: {'Content-Type': 'application/json'});
+        isAuthenticated = false;
+        
+        // Ha vendég mód engedélyezve van, az olvasási műveletek mehetnek (kivéve remote vezérlés)
+        bool isReadOperation = path == 'status' || path == 'songs' || path == 'stations' || path.startsWith('stream/');
+        
+        if (!(_guestModeEnabled && isReadOperation)) {
+          if (path == 'status') {
+            return Response.ok(jsonEncode({
+              'isReady': true, 
+              'authRequired': true, 
+              'guestModeEnabled': _guestModeEnabled
+            }), headers: {'Content-Type': 'application/json'});
+          }
+          return Response.forbidden('Érvénytelen PIN kód.');
         }
-        return Response.forbidden('Érvénytelen PIN kód.');
       }
     }
 
     if (path == 'status') {
       Map<String, dynamic> status = {
         'isReady': true, 
-        'authRequired': false,
+        'authRequired': !isAuthenticated,
+        'guestModeEnabled': _guestModeEnabled,
+        'isGuest': !isAuthenticated,
         'isMusicMode': isMusicMode,
         'isLoading': isMusicMode ? musicProvider.isLoading : radioProvider.isLoading,
         'volume': isMusicMode ? musicProvider.systemVolume : radioProvider.systemVolume,
@@ -129,6 +144,7 @@ class StreamingService {
         'id': s.id,
         'name': s.name,
         'nowPlaying': s.nowPlaying,
+        'url': s.streamUrl,
       }).toList();
       return Response.ok(jsonEncode(stations), headers: {'Content-Type': 'application/json'});
     }
@@ -231,7 +247,7 @@ class StreamingService {
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 40px 20px;
+            padding: 70px 20px 40px;
         }
 
         .container {
@@ -679,6 +695,13 @@ class StreamingService {
             <button class="mode-btn" style="background: rgba(255,255,255,0.05); padding: 20px; font-size: 1.5rem;" onclick="appendPin('0')">0</button>
             <button class="mode-btn" style="background: var(--accent-color); color: #000; padding: 20px; font-size: 1.2rem;" onclick="submitPin()">OK</button>
         </div>
+        <button id="guest-btn" style="margin-top: 30px; background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--text-dim); padding: 10px 20px; border-radius: 20px; font-size: 0.9rem; font-family: 'Outfit', sans-serif; cursor: pointer; display: none; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--text-dim)'" onclick="enterGuestMode()">Hallgatás vendégként</button>
+    </div>
+
+    <!-- Top Bar for Logout / Login -->
+    <div id="top-bar" style="display: none; position: fixed; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); padding: 10px 20px; z-index: 1000; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--glass-border);">
+        <span id="top-bar-status" style="font-size: 0.8rem; opacity: 0.7; font-weight: 600; letter-spacing: 1px;"></span>
+        <button id="top-bar-btn" class="btn" style="padding: 6px 15px; font-size: 0.75rem;" onclick="logout()">Kijelentkezés</button>
     </div>
 
     <!-- Loading Overlay -->
@@ -722,9 +745,11 @@ class StreamingService {
         let isUserSeeking = false;
         let currentMode = 'radio';
         let currentPin = localStorage.getItem('radiont_pin') || '';
+        let isGuest = localStorage.getItem('radiont_is_guest') === 'true';
         let localLastLibraryUpdate = 0;
 
         function getAuthUrl(url) {
+            if (isGuest && !url.startsWith('/remote/')) return url;
             const separator = url.includes('?') ? '&' : '?';
             return `${url}${separator}pin=${currentPin}`;
         }
@@ -746,8 +771,33 @@ class StreamingService {
         }
 
         function submitPin() {
+            isGuest = false;
+            localStorage.removeItem('radiont_is_guest');
             localStorage.setItem('radiont_pin', currentPin);
             pinOverlay.style.display = 'none';
+            checkStatus();
+        }
+
+        function enterGuestMode() {
+            isGuest = true;
+            localStorage.setItem('radiont_is_guest', 'true');
+            pinOverlay.style.display = 'none';
+            checkStatus();
+        }
+
+        function logout() {
+            isGuest = false;
+            localStorage.removeItem('radiont_is_guest');
+            localStorage.removeItem('radiont_pin');
+            clearPin();
+            
+            // Leállítjuk a helyi lejátszást
+            audio.pause();
+            audio.currentTime = 0;
+            browserPlayerCard.style.display = 'none';
+            
+            pinOverlay.style.display = 'flex';
+            document.getElementById('top-bar').style.display = 'none';
             checkStatus();
         }
 
@@ -795,7 +845,7 @@ class StreamingService {
                         <span class="list-item-title">${song.title}</span>
                         <span class="list-item-artist">${song.artist}</span>
                     </div>
-                    <button class="list-item-btn" onclick="event.stopPropagation(); playOnPhone(${song.id})">📲 TELEFONON</button>
+                    <button class="list-item-btn" style="display: ${isGuest ? 'none' : 'block'}" onclick="event.stopPropagation(); playOnPhone(${song.id})">📲 TELEFONON</button>
                 `;
                 list.appendChild(li);
             });
@@ -815,13 +865,13 @@ class StreamingService {
             stations.forEach(station => {
                 const li = document.createElement('li');
                 li.className = 'list-item';
-                li.onclick = () => playStationOnPhone(station.id);
+                li.onclick = () => isGuest ? playStationHere(station) : playStationOnPhone(station.id);
                 li.innerHTML = `
                     <div class="list-item-info">
                         <span class="list-item-title">${station.name}</span>
                         <span class="list-item-artist">${station.nowPlaying || 'Stream Online'}</span>
                     </div>
-                    <button class="list-item-btn">📲 VÁLTÁS</button>
+                    <button class="list-item-btn" style="display: ${isGuest ? 'none' : 'block'}" onclick="event.stopPropagation(); playStationOnPhone(${station.id})">📲 VÁLTÁS</button>
                 `;
                 list.appendChild(li);
             });
@@ -844,8 +894,17 @@ class StreamingService {
 
         function playHere(song) {
             browserPlayerCard.style.display = 'block';
+            playerMainCard.style.display = 'block';
             browserNowPlaying.innerText = `${song.artist} - ${song.title}`;
             audio.src = getAuthUrl(`/stream/${song.id}`);
+            audio.play();
+        }
+
+        function playStationHere(station) {
+            browserPlayerCard.style.display = 'block';
+            playerMainCard.style.display = 'block';
+            browserNowPlaying.innerText = station.name;
+            audio.src = station.url;
             audio.play();
         }
 
@@ -927,6 +986,12 @@ class StreamingService {
                 const response = await fetch(getAuthUrl('/status'));
                 if (!response.ok) {
                     if (response.status === 403) {
+                        const data = await response.json().catch(() => ({}));
+                        if (data.guestModeEnabled) {
+                            document.getElementById('guest-btn').style.display = 'block';
+                        } else {
+                            document.getElementById('guest-btn').style.display = 'none';
+                        }
                         pinOverlay.style.display = 'flex';
                         overlay.style.display = 'none';
                         return;
@@ -935,7 +1000,12 @@ class StreamingService {
                 }
                 const data = await response.json();
 
-                if (data.authRequired) {
+                if (data.authRequired && (!isGuest || !data.guestModeEnabled)) {
+                    if (data.guestModeEnabled) {
+                        document.getElementById('guest-btn').style.display = 'block';
+                    } else {
+                        document.getElementById('guest-btn').style.display = 'none';
+                    }
                     pinOverlay.style.display = 'flex';
                     overlay.style.display = 'none';
                     return;
@@ -944,6 +1014,40 @@ class StreamingService {
                 pinOverlay.style.display = 'none';
                 overlay.style.display = 'none';
                 
+                // Guest UI logic
+                isGuest = data.isGuest;
+                const topBar = document.getElementById('top-bar');
+                const topBarStatus = document.getElementById('top-bar-status');
+                const topBarBtn = document.getElementById('top-bar-btn');
+                
+                if (data.authRequired && isGuest) {
+                     topBar.style.display = 'flex';
+                     topBarStatus.innerText = 'VENDÉG MÓD (Csak hallgatás)';
+                     topBarBtn.innerText = 'Bejelentkezés';
+                } else if (!data.authRequired && currentPin) {
+                     topBar.style.display = 'flex';
+                     topBarStatus.innerText = 'TELJES HOZZÁFÉRÉS';
+                     topBarBtn.innerText = 'Kijelentkezés';
+                } else {
+                     topBar.style.display = 'none';
+                }
+                
+                const controlsToHide = document.querySelectorAll('.controls-row, #volume-slider, .mode-switcher, #yt-dropper-card, #phone-now-playing, #progress-area');
+                controlsToHide.forEach(el => {
+                    if (!el) return;
+                    el.style.display = isGuest ? 'none' : '';
+                    if (el.id === 'volume-slider' && el.parentElement) el.parentElement.style.display = isGuest ? 'none' : 'flex';
+                    if (el.id === 'yt-dropper-card' && !isGuest) el.style.display = (data.isWebDownloadEnabled && currentMode === 'music') ? 'block' : 'none';
+                });
+                
+                if (isGuest && browserPlayerCard.style.display === 'none') {
+                    playerMainCard.style.display = 'none';
+                } else if (currentMode === 'music' && !data.nowPlaying && !isGuest && browserPlayerCard.style.display === 'none') {
+                    playerMainCard.style.display = 'none';
+                } else {
+                    playerMainCard.style.display = 'block';
+                }
+                
                 if (data.themeColor) {
                     document.documentElement.style.setProperty('--accent-color', data.themeColor);
                 }
@@ -951,7 +1055,7 @@ class StreamingService {
                 const modeChanged = currentMode !== (data.isMusicMode ? 'music' : 'radio');
                 currentMode = data.isMusicMode ? 'music' : 'radio';
 
-                ytDropperCard.style.display = (data.isWebDownloadEnabled && data.isMusicMode) ? 'block' : 'none';
+                ytDropperCard.style.display = (!isGuest && data.isWebDownloadEnabled && data.isMusicMode) ? 'block' : 'none';
 
                 const libraryUpdated = data.lastLibraryUpdate && data.lastLibraryUpdate > localLastLibraryUpdate;
                 if (libraryUpdated) {
@@ -974,12 +1078,12 @@ class StreamingService {
                     playerMainCard.style.display = 'block';
                 }
                 
-                if (currentMode === 'radio') {
+                if (currentMode === 'radio' && !isGuest) {
                     browserPlayerCard.style.display = 'none';
                     audio.pause();
                 }
 
-                if (data.nowPlaying) {
+                if (data.nowPlaying && !isGuest) {
                     phoneNowPlaying.querySelector('.song-artist-main').innerText = (currentMode === 'music' ? 'MOST SZÓL A TELEFONON:' : 'AKTUÁLIS RÁDIÓADÓ:');
                     phoneNowPlaying.querySelector('.song-title-main').innerText = data.nowPlaying.title;
                     if (data.nowPlaying.artist) {

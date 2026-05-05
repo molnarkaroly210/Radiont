@@ -1507,6 +1507,18 @@ class SettingsSheet extends StatelessWidget {
                       },
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                     ),
+                  if (musicProvider.isStreamingPinEnabled)
+                    SwitchListTile(
+                        title: Text("Vendég mód engedélyezése",
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.normal)),
+                        subtitle: Text("Hallgatás engedélyezése PIN nélkül",
+                            style: theme.textTheme.bodyMedium),
+                        value: musicProvider.isStreamingGuestModeEnabled,
+                        onChanged: (val) => musicProvider.setStreamingGuestModeEnabled(val, radioProvider, themeProvider),
+                        activeThumbColor: theme.primaryColor,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 10)),
                   if (musicProvider.isStreamingEnabled)
                     Padding(
                       padding: const EdgeInsets.only(left: 10, bottom: 10),
