@@ -123,9 +123,17 @@ class RadioProvider extends ChangeNotifier {
     _loadSettings();
     _isLoading = false;
     notifyListeners();
-    // Lejátszási lista beállítása az indításkor
-    if (activeStations.isNotEmpty) {
+    // Lejátszási lista beállítása az indításkor, de csak ha nem Zene módban indulunk
+    // Ez megelőzi a két lejátszó közötti erőforrás-konfliktust Windows-on indításkor
+    if (activeStations.isNotEmpty && (prefs.getInt('startScreen') ?? 0) == 0) {
       _updateAudioSource(play: false);
+    }
+  }
+
+  /// Külsőleg hívható metódus a lejátszó felkészítésére (pl. módváltáskor)
+  Future<void> refreshPlayer() async {
+    if (activeStations.isNotEmpty) {
+      await _updateAudioSource(play: false);
     }
   }
 
@@ -163,14 +171,15 @@ class RadioProvider extends ChangeNotifier {
   }
 
   Future<void> setStationByIndex(int index, {bool play = true}) async {
-    if (activeStations.isEmpty || index < 0 || index >= activeStations.length) return;
+    if (activeStations.isEmpty || index < 0 || index >= activeStations.length)
+      return;
 
     _currentIndex = index;
     notifyListeners();
 
     try {
       final stationToPlay = activeStations[_currentIndex];
-      
+
       // Kényszerítjük a PageView-t az új indexre
       if (pageController.hasClients) {
         pageController.animateToPage(
@@ -185,7 +194,7 @@ class RadioProvider extends ChangeNotifier {
         if (_audioPlayer.currentIndex != index) {
           await _audioPlayer.seek(Duration.zero, index: index);
         }
-        
+
         if (play) {
           await _audioPlayer.play();
         }
@@ -204,7 +213,9 @@ class RadioProvider extends ChangeNotifier {
 
     final audioSources = List.generate(activeStations.length, (index) {
       final station = activeStations[index];
-      final safeId = station.id.isNotEmpty ? station.id : 'radio_${station.name.replaceAll(RegExp(r'\s+'), '')}';
+      final safeId = station.id.isNotEmpty
+          ? station.id
+          : 'radio_${station.name.replaceAll(RegExp(r'\s+'), '')}';
       return AudioSource.uri(
         Uri.parse(station.streamUrl),
         tag: MediaItem(
@@ -315,7 +326,8 @@ Future<void> main() async {
 
   // Értesítési engedély kérése (Android 13+ esetén szükséges a vezérlőkhöz)
   if (Platform.isAndroid) {
-    Permission.notification.request(); // Ne várjuk meg (await), hogy ne akadjon meg az indítás
+    Permission.notification
+        .request(); // Ne várjuk meg (await), hogy ne akadjon meg az indítás
   }
 
   // === PRIVÁT DNS BEÁLLÍTÁSA ===
@@ -394,12 +406,17 @@ class _MainScreenState extends State<MainScreen> {
     final musicProvider = context.read<MusicProvider>();
     final radioProvider = context.read<RadioProvider>();
     bool newMode = !musicProvider.isMusicModeActive;
-    
+
     musicProvider.isMusicModeActive = newMode;
     if (newMode) {
       radioProvider.audioPlayer.stop();
     } else {
       musicProvider.audioPlayer.stop();
+      // Ha a rádió lejátszója még nincs inicializálva (pl. Zene módban indult az app), most megtesszük
+      if (radioProvider.audioPlayer.audioSource == null &&
+          radioProvider.activeStations.isNotEmpty) {
+        radioProvider.refreshPlayer();
+      }
     }
   }
 
@@ -417,7 +434,16 @@ class _MainScreenState extends State<MainScreen> {
     // Verzióellenőrzés indításkor
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final musicProvider = context.read<MusicProvider>();
+      final radioProvider = context.read<RadioProvider>();
       musicProvider.isMusicModeActive = initialMode;
+
+      // Biztosítjuk, hogy az inaktív mód lejátszója ne foglaljon erőforrást
+      if (initialMode) {
+        radioProvider.audioPlayer.stop();
+      } else {
+        musicProvider.audioPlayer.stop();
+      }
+
       VersionService.checkForUpdates(context);
 
       // Figyeljük a webes távirányítóról érkező letöltési kéréseket
@@ -427,7 +453,7 @@ class _MainScreenState extends State<MainScreen> {
           if (Navigator.of(context).canPop()) {
             Navigator.of(context).popUntil((route) => route.isFirst);
           }
-          
+
           // Biztosítjuk, hogy Zene módban legyünk
           if (!musicProvider.isMusicModeActive) {
             _toggleMode();
@@ -447,7 +473,6 @@ class _MainScreenState extends State<MainScreen> {
       });
     });
   }
-
 
   void _updateTime() {
     if (mounted) {
@@ -1300,7 +1325,9 @@ class SettingsSheet extends StatelessWidget {
                             label: Text('Zene'),
                             icon: Icon(Icons.music_note_rounded)),
                       ],
-                      selected: {themeProvider.startScreen},
+                      selected: {
+                        themeProvider.startScreen
+                      },
                       onSelectionChanged: (s) =>
                           themeProvider.setStartScreen(s.first),
                       style: _segmentedButtonStyle(context)),
@@ -1457,7 +1484,8 @@ class SettingsSheet extends StatelessWidget {
                               : "Zenék elérése böngészőből a helyi hálózaton",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isStreamingEnabled,
-                      onChanged: (_) => musicProvider.toggleStreaming(radioProvider, themeProvider),
+                      onChanged: (_) => musicProvider.toggleStreaming(
+                          radioProvider, themeProvider),
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),
@@ -1468,18 +1496,22 @@ class SettingsSheet extends StatelessWidget {
                       subtitle: Text("Jelszó kérése a webes felületen",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isStreamingPinEnabled,
-                      onChanged: (val) => musicProvider.setStreamingPinEnabled(val, radioProvider, themeProvider),
+                      onChanged: (val) => musicProvider.setStreamingPinEnabled(
+                          val, radioProvider, themeProvider),
                       activeThumbColor: theme.primaryColor,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 10)),
                   if (musicProvider.isStreamingPinEnabled)
                     ListTile(
                       title: const Text("PIN kód beállítása"),
-                      subtitle: Text("Jelenlegi: ${musicProvider.streamingPin}"),
-                      leading: Icon(Icons.password_rounded, color: theme.primaryColor, size: 22),
+                      subtitle:
+                          Text("Jelenlegi: ${musicProvider.streamingPin}"),
+                      leading: Icon(Icons.password_rounded,
+                          color: theme.primaryColor, size: 22),
                       trailing: const Icon(Icons.edit_rounded, size: 18),
                       onTap: () async {
-                        final controller = TextEditingController(text: musicProvider.streamingPin);
+                        final controller = TextEditingController(
+                            text: musicProvider.streamingPin);
                         await showDialog(
                           context: context,
                           builder: (ctx) => AlertDialog(
@@ -1487,15 +1519,25 @@ class SettingsSheet extends StatelessWidget {
                             content: TextField(
                               controller: controller,
                               keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
-                              decoration: const InputDecoration(labelText: "PIN (4-6 számjegy)", hintText: "1234"),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(6)
+                              ],
+                              decoration: const InputDecoration(
+                                  labelText: "PIN (4-6 számjegy)",
+                                  hintText: "1234"),
                             ),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Mégse")),
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text("Mégse")),
                               ElevatedButton(
                                 onPressed: () {
                                   if (controller.text.length >= 4) {
-                                    musicProvider.setStreamingPin(controller.text, radioProvider, themeProvider);
+                                    musicProvider.setStreamingPin(
+                                        controller.text,
+                                        radioProvider,
+                                        themeProvider);
                                     Navigator.pop(ctx);
                                   }
                                 },
@@ -1505,7 +1547,8 @@ class SettingsSheet extends StatelessWidget {
                           ),
                         );
                       },
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 14),
                     ),
                   if (musicProvider.isStreamingPinEnabled)
                     SwitchListTile(
@@ -1515,7 +1558,9 @@ class SettingsSheet extends StatelessWidget {
                         subtitle: Text("Hallgatás engedélyezése PIN nélkül",
                             style: theme.textTheme.bodyMedium),
                         value: musicProvider.isStreamingGuestModeEnabled,
-                        onChanged: (val) => musicProvider.setStreamingGuestModeEnabled(val, radioProvider, themeProvider),
+                        onChanged: (val) =>
+                            musicProvider.setStreamingGuestModeEnabled(
+                                val, radioProvider, themeProvider),
                         activeThumbColor: theme.primaryColor,
                         contentPadding:
                             const EdgeInsets.symmetric(horizontal: 10)),
@@ -1545,7 +1590,8 @@ class SettingsSheet extends StatelessWidget {
                       title: Text("YouTube Link Bedobó",
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.normal)),
-                      subtitle: Text("YouTube linkek fogadása a webes felületről",
+                      subtitle: Text(
+                          "YouTube linkek fogadása a webes felületről",
                           style: theme.textTheme.bodyMedium),
                       value: musicProvider.isWebRemoteDownloadEnabled,
                       onChanged: (val) async {
@@ -1554,10 +1600,15 @@ class SettingsSheet extends StatelessWidget {
                             context: context,
                             builder: (ctx) => AlertDialog(
                               title: const Text("Figyelem"),
-                              content: const Text("A webes letöltő csak akkor elérhető, ha az alkalmazás nyitva van a Zene fülön, és a kijelző be van kapcsolva.\n\nBekapcsolás esetén a telefon képernyője folyamatosan ébren marad. Biztosan bekapcsolod?"),
+                              content: const Text(
+                                  "A webes letöltő csak akkor elérhető, ha az alkalmazás nyitva van a Zene fülön, és a kijelző be van kapcsolva.\n\nBekapcsolás esetén a telefon képernyője folyamatosan ébren marad. Biztosan bekapcsolod?"),
                               actions: [
-                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Mégse")),
-                                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Bekapcsolás")),
+                                TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text("Mégse")),
+                                ElevatedButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text("Bekapcsolás")),
                               ],
                             ),
                           );
@@ -1914,7 +1965,8 @@ class SettingsSheet extends StatelessWidget {
                     trailing: const Icon(Icons.chevron_right_rounded, size: 20),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                     onTap: () {
-                      VersionService.checkForUpdates(context, showMessage: true);
+                      VersionService.checkForUpdates(context,
+                          showMessage: true);
                     },
                   ),
                   // === ARCHIVÁLT ZENÉK ===
@@ -2124,7 +2176,6 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
         // 3 másodpercig mutatjuk az update jelzést, utána vissza az órára
         if (_showUpdate) {
           Future.delayed(const Duration(seconds: 10), () {
-
             if (mounted) setState(() => _showUpdate = false);
           });
         }
@@ -2181,35 +2232,46 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
                         blur: 20,
                         alignment: Alignment.center,
                         border: 1,
-                        linearGradient: LinearGradient(colors: [
-                          isDownloadReady
-                              ? Colors.green.withValues(alpha: 0.3)
-                              : (isDownloading
-                                  ? Colors.blue.withValues(alpha: 0.3)
-                                  : (_showUpdate
-                                      ? Colors.red.withValues(alpha: 0.3)
-                                      : theme.colorScheme.surface.withValues(alpha: 0.2))),
-                          isDownloadReady
-                              ? Colors.green.withValues(alpha: 0.15)
-                              : (isDownloading
-                                  ? Colors.blue.withValues(alpha: 0.15)
-                                  : (_showUpdate
-                                      ? Colors.red.withValues(alpha: 0.15)
-                                      : theme.colorScheme.surface.withValues(alpha: 0.1)))
-                        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                        borderGradient: LinearGradient(colors: [
-                          isDownloadReady
-                              ? Colors.green.withValues(alpha: 0.8)
-                              : (isDownloading
-                                  ? Colors.blue.withValues(alpha: 0.8)
-                                  : (_showUpdate
-                                      ? Colors.red.withValues(alpha: 0.8)
-                                      : theme.primaryColor.withValues(alpha: 0.6))),
-                          theme.colorScheme.surface.withValues(alpha: 0.2)
-                        ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                        linearGradient: LinearGradient(
+                            colors: [
+                              isDownloadReady
+                                  ? Colors.green.withValues(alpha: 0.3)
+                                  : (isDownloading
+                                      ? Colors.blue.withValues(alpha: 0.3)
+                                      : (_showUpdate
+                                          ? Colors.red.withValues(alpha: 0.3)
+                                          : theme.colorScheme.surface
+                                              .withValues(alpha: 0.2))),
+                              isDownloadReady
+                                  ? Colors.green.withValues(alpha: 0.15)
+                                  : (isDownloading
+                                      ? Colors.blue.withValues(alpha: 0.15)
+                                      : (_showUpdate
+                                          ? Colors.red.withValues(alpha: 0.15)
+                                          : theme.colorScheme.surface
+                                              .withValues(alpha: 0.1)))
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight),
+                        borderGradient: LinearGradient(
+                            colors: [
+                              isDownloadReady
+                                  ? Colors.green.withValues(alpha: 0.8)
+                                  : (isDownloading
+                                      ? Colors.blue.withValues(alpha: 0.8)
+                                      : (_showUpdate
+                                          ? Colors.red.withValues(alpha: 0.8)
+                                          : theme.primaryColor
+                                              .withValues(alpha: 0.6))),
+                              theme.colorScheme.surface.withValues(alpha: 0.2)
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight),
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
-                          child: (_showUpdate || isDownloading || isDownloadReady)
+                          child: (_showUpdate ||
+                                  isDownloading ||
+                                  isDownloadReady)
                               ? FadeTransition(
                                   key: const ValueKey('update'),
                                   opacity: _blinkController,
@@ -2221,18 +2283,22 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
 
                                     if (isDownloadReady) {
                                       statusColor = Colors.green;
-                                      statusIcon = Icons.check_circle_outline_rounded;
+                                      statusIcon =
+                                          Icons.check_circle_outline_rounded;
                                       statusText = "INSTALL";
                                     } else if (isDownloading) {
                                       statusColor = Colors.blue;
                                       statusIcon = Icons.downloading_rounded;
-                                      statusText = "${(progress * 100).toInt()}%";
+                                      statusText =
+                                          "${(progress * 100).toInt()}%";
                                     }
 
                                     return Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        Icon(statusIcon, color: statusColor, size: 18),
+                                        Icon(statusIcon,
+                                            color: statusColor, size: 18),
                                         const SizedBox(width: 4),
                                         Text(statusText,
                                             style: TextStyle(
@@ -2252,7 +2318,6 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
               );
             },
           ),
-
           Row(children: [
             GlassButton(
                 icon: widget.isMusicMode
@@ -2288,7 +2353,6 @@ class _TopBarState extends State<TopBar> with SingleTickerProviderStateMixin {
         ]));
   }
 }
-
 
 abstract class BottomSheetStyles {
   static LinearGradient glassGradient(BuildContext context) => LinearGradient(
